@@ -27,13 +27,13 @@ module.exports = {
         for (const part of rangeParts) {
             const times = part.split('-');
             if (times.length !== 2) {
-                return interaction.reply({ content: `Invalid range format: ${part}. Use "HH:mm-HH:mm"`, ephemeral: true });
+                return interaction.reply({ content: `Invalid range format: ${part}. Use "HH:mm-HH:mm"`, flags: 64 });
             }
             const start = times[0].trim();
             const end = times[1].trim();
 
             if (!timeRegex.test(start) || !timeRegex.test(end)) {
-                return interaction.reply({ content: `Invalid time format in range: ${part}. Use HH:mm (24h)`, ephemeral: true });
+                return interaction.reply({ content: `Invalid time format in range: ${part}. Use HH:mm (24h)`, flags: 64 });
             }
 
             validRanges.push({ start, end });
@@ -42,10 +42,10 @@ module.exports = {
         // Save to DB
         try {
             db.saveConfig(interaction.guildId, day, JSON.stringify(validRanges));
-            await interaction.reply({ content: `Configuration saved for **${day}** with ranges: ${rangesRaw}`, ephemeral: true });
+            await interaction.reply({ content: `Configuration saved for **${day}** with ranges: ${rangesRaw}`, flags: 64 });
         } catch (error) {
             console.error(error);
-            await interaction.reply({ content: 'Failed to save configuration.', ephemeral: true });
+            await interaction.reply({ content: 'Failed to save configuration.', flags: 64 });
         }
     },
 };

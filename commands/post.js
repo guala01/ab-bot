@@ -14,7 +14,7 @@ module.exports = {
         const config = db.getConfig(interaction.guildId, day);
 
         if (!config) {
-            return interaction.reply({ content: `No configuration found for **${day}**. Please use /setup_league first.`, ephemeral: true });
+            return interaction.reply({ content: `No configuration found for **${day}**. Please use /setup_league first.`, flags: 64 });
         }
 
         const ranges = JSON.parse(config.ranges);
@@ -85,7 +85,7 @@ module.exports = {
         }
 
         if (rows.length > 5) {
-            return interaction.reply({ content: `Too many slots generated (${slots.length}). Discord limits buttons to 25. Please reduce the range.`, ephemeral: true });
+            return interaction.reply({ content: `Too many slots generated (${slots.length}). Discord limits buttons to 25. Please reduce the range.`, flags: 64 });
         }
 
         await interaction.reply({ embeds: [embed], components: rows });
