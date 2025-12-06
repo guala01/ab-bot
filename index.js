@@ -63,7 +63,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 const timeSlot = interaction.customId.split('_')[1];
                 const messageId = interaction.message.id;
                 const userId = interaction.user.id;
-                const displayName = interaction.member ? interaction.member.displayName : interaction.user.username;
+                const displayName = interaction.user.username;
 
                 // Check if user is already signed up for this slot
                 const signups = db.getSignups(messageId);
@@ -109,7 +109,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 for (const slot of allSlots) {
                     const users = signupsBySlot[slot] || [];
                     const value = users.length > 0 ? users.join(', ') : '-';
-                    newEmbed.addFields({ name: `🫄🏿 ${slot}`, value: value, inline: true });
+                    newEmbed.addFields({ name: `🫄🏿 ${slot} (${users.length})`, value: value, inline: true });
                 }
 
                 await interaction.message.edit({ embeds: [newEmbed] });

@@ -59,7 +59,7 @@ module.exports = {
 
         // Add initial fields (empty)
         for (const slot of slots) {
-            embed.addFields({ name: `🫄🏿 ${slot}`, value: '-', inline: true });
+            embed.addFields({ name: `🫄🏿 ${slot} (0)`, value: '-', inline: true });
         }
 
         // Create Buttons (max 5 per row, max 5 rows = 25 buttons max)
