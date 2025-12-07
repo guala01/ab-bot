@@ -200,95 +200,102 @@
         <div class="meta">Message ID: <%= messageId %>
         </div>
 
-        <% const times=Object.keys(slots).sort(); %>
-            <% if (times.length===0) { %>
-                <div class="empty-slot">No signups for this day.</div>
-                <% } %>
+        <% // Custom sort: treat 00:00-05:59 as "after 24:00" for proper ordering const
+            times=Object.keys(slots).sort((a, b)=> {
+            const hourA = parseInt(a.split(':')[0]);
+            const hourB = parseInt(b.split(':')[0]);
+            const adjA = hourA < 6 ? hourA + 24 : hourA; const adjB=hourB < 6 ? hourB + 24 : hourB; if (adjA !==adjB)
+                return adjA - adjB; return a.localeCompare(b); }); %>
+                <% if (times.length===0) { %>
+                    <div class="empty-slot">No signups for this day.</div>
+                    <% } %>
 
-                    <% times.forEach(function(time) { %>
-                        <% const total=slots[time].length; const countA=slots[time].filter(s=> s.team === 'A').length;
-                            const countB = slots[time].filter(s => s.team === 'B').length;
-                            const countU = total - countA - countB;
-                            %>
-                            <div class="slot-section" id="slot-<%= time.replace(':', '-') %>">
-                                <div class="slot-title" onclick="toggleSlot('<%= time.replace(':', '-') %>')">
-                                    <span class="arrow">▶</span>
-                                    🕐 <%= time %> <span style="opacity:0.7;">(<%= total %>)</span>
-                                </div>
-                                <div class="teams-container">
-                                    <!-- Unassigned -->
-                                    <div class="team-col">
-                                        <div class="team-header">Unassigned (<%= countU %>)</div>
-                                        <% let hasUnassigned=false; %>
-                                            <% slots[time].forEach(function(s) { if (!s.team) { hasUnassigned=true; %>
-                                                <div class="player-card">
-                                                    <div>
+                        <% times.forEach(function(time) { %>
+                            <% const total=slots[time].length; const countA=slots[time].filter(s=> s.team ===
+                                'A').length;
+                                const countB = slots[time].filter(s => s.team === 'B').length;
+                                const countU = total - countA - countB;
+                                %>
+                                <div class="slot-section" id="slot-<%= time.replace(':', '-') %>">
+                                    <div class="slot-title" onclick="toggleSlot('<%= time.replace(':', '-') %>')">
+                                        <span class="arrow">▶</span>
+                                        🕐 <%= time %> <span style="opacity:0.7;">(<%= total %>)</span>
+                                    </div>
+                                    <div class="teams-container">
+                                        <!-- Unassigned -->
+                                        <div class="team-col">
+                                            <div class="team-header">Unassigned (<%= countU %>)</div>
+                                            <% let hasUnassigned=false; %>
+                                                <% slots[time].forEach(function(s) { if (!s.team) { hasUnassigned=true;
+                                                    %>
+                                                    <div class="player-card">
+                                                        <div>
+                                                            <div class="player-name">
+                                                                <%= s.customName || s.user_display_name %>
+                                                            </div>
+                                                            <div class="player-username">
+                                                                <%= s.username %>
+                                                            </div>
+                                                        </div>
+                                                        <div class="actions">
+                                                            <button class="btn-a"
+                                                                onclick="setTeam('<%= s.user_id %>', '<%= time %>', 'A')">A</button>
+                                                            <button class="btn-b"
+                                                                onclick="setTeam('<%= s.user_id %>', '<%= time %>', 'B')">B</button>
+                                                        </div>
+                                                    </div>
+                                                    <% } }); %>
+                                                        <% if (!hasUnassigned) { %>
+                                                            <div class="empty-slot">—</div>
+                                                            <% } %>
+                                        </div>
+
+                                        <!-- Team A -->
+                                        <div class="team-col">
+                                            <div class="team-header" style="color:#ffa726;">Team A (<%= countA %>)</div>
+                                            <% let hasA=false; %>
+                                                <% slots[time].forEach(function(s) { if (s.team==='A' ) { hasA=true; %>
+                                                    <div class="player-card">
                                                         <div class="player-name">
                                                             <%= s.customName || s.user_display_name %>
                                                         </div>
-                                                        <div class="player-username">
-                                                            <%= s.username %>
+                                                        <div class="actions">
+                                                            <button class="btn-u"
+                                                                onclick="setTeam('<%= s.user_id %>', '<%= time %>', null)">✕</button>
+                                                            <button class="btn-b"
+                                                                onclick="setTeam('<%= s.user_id %>', '<%= time %>', 'B')">→B</button>
                                                         </div>
                                                     </div>
-                                                    <div class="actions">
-                                                        <button class="btn-a"
-                                                            onclick="setTeam('<%= s.user_id %>', '<%= time %>', 'A')">A</button>
-                                                        <button class="btn-b"
-                                                            onclick="setTeam('<%= s.user_id %>', '<%= time %>', 'B')">B</button>
-                                                    </div>
-                                                </div>
-                                                <% } }); %>
-                                                    <% if (!hasUnassigned) { %>
-                                                        <div class="empty-slot">—</div>
-                                                        <% } %>
-                                    </div>
+                                                    <% } }); %>
+                                                        <% if (!hasA) { %>
+                                                            <div class="empty-slot">—</div>
+                                                            <% } %>
+                                        </div>
 
-                                    <!-- Team A -->
-                                    <div class="team-col">
-                                        <div class="team-header" style="color:#ffa726;">Team A (<%= countA %>)</div>
-                                        <% let hasA=false; %>
-                                            <% slots[time].forEach(function(s) { if (s.team==='A' ) { hasA=true; %>
-                                                <div class="player-card">
-                                                    <div class="player-name">
-                                                        <%= s.customName || s.user_display_name %>
+                                        <!-- Team B -->
+                                        <div class="team-col">
+                                            <div class="team-header" style="color:#66bb6a;">Team B (<%= countB %>)</div>
+                                            <% let hasB=false; %>
+                                                <% slots[time].forEach(function(s) { if (s.team==='B' ) { hasB=true; %>
+                                                    <div class="player-card">
+                                                        <div class="player-name">
+                                                            <%= s.customName || s.user_display_name %>
+                                                        </div>
+                                                        <div class="actions">
+                                                            <button class="btn-u"
+                                                                onclick="setTeam('<%= s.user_id %>', '<%= time %>', null)">✕</button>
+                                                            <button class="btn-a"
+                                                                onclick="setTeam('<%= s.user_id %>', '<%= time %>', 'A')">→A</button>
+                                                        </div>
                                                     </div>
-                                                    <div class="actions">
-                                                        <button class="btn-u"
-                                                            onclick="setTeam('<%= s.user_id %>', '<%= time %>', null)">✕</button>
-                                                        <button class="btn-b"
-                                                            onclick="setTeam('<%= s.user_id %>', '<%= time %>', 'B')">→B</button>
-                                                    </div>
-                                                </div>
-                                                <% } }); %>
-                                                    <% if (!hasA) { %>
-                                                        <div class="empty-slot">—</div>
-                                                        <% } %>
-                                    </div>
-
-                                    <!-- Team B -->
-                                    <div class="team-col">
-                                        <div class="team-header" style="color:#66bb6a;">Team B (<%= countB %>)</div>
-                                        <% let hasB=false; %>
-                                            <% slots[time].forEach(function(s) { if (s.team==='B' ) { hasB=true; %>
-                                                <div class="player-card">
-                                                    <div class="player-name">
-                                                        <%= s.customName || s.user_display_name %>
-                                                    </div>
-                                                    <div class="actions">
-                                                        <button class="btn-u"
-                                                            onclick="setTeam('<%= s.user_id %>', '<%= time %>', null)">✕</button>
-                                                        <button class="btn-a"
-                                                            onclick="setTeam('<%= s.user_id %>', '<%= time %>', 'A')">→A</button>
-                                                    </div>
-                                                </div>
-                                                <% } }); %>
-                                                    <% if (!hasB) { %>
-                                                        <div class="empty-slot">—</div>
-                                                        <% } %>
+                                                    <% } }); %>
+                                                        <% if (!hasB) { %>
+                                                            <div class="empty-slot">—</div>
+                                                            <% } %>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            <% }); %>
+                                <% }); %>
     </div>
 
     <script>
