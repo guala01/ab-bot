@@ -209,6 +209,24 @@ app.post('/api/signup/delete', requireAuth, (req, res) => {
     }
 });
 
+app.post('/api/signup/rename', requireAuth, (req, res) => {
+    const { messageId, dayName } = req.body;
+    try {
+        // Insert or update message entry
+        const existing = db.getMessage(messageId);
+        if (existing) {
+            db.updateMessageDay(messageId, dayName);
+        } else {
+            // Create new entry for old posts without metadata
+            db.saveMessage(messageId, '', '', dayName);
+        }
+        res.redirect('/dashboard');
+    } catch (e) {
+        console.error(e);
+        res.status(500).send('Error renaming day');
+    }
+});
+
 app.get('/logout', (req, res) => {
     req.session.destroy();
     res.redirect('/login');

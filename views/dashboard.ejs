@@ -273,7 +273,16 @@
                                     <div class="signup-card">
                                         <h3>
                                             <%= post.day %>
+                                                <button class="rename-btn"
+                                                    onclick="toggleDayRename('<%= msgId %>')">✏️</button>
                                         </h3>
+                                        <form id="day-rename-<%= msgId %>" class="rename-form"
+                                            action="/api/signup/rename" method="POST">
+                                            <input type="hidden" name="messageId" value="<%= msgId %>">
+                                            <input type="text" name="dayName" placeholder="New day name"
+                                                value="<%= post.day %>">
+                                            <button type="submit">Save</button>
+                                        </form>
                                         <div class="meta">ID: <%= msgId.substring(0, 8) %>...</div>
                                         <div class="player-count">
                                             <%= post.signups.length %> <span>players</span>
@@ -380,6 +389,11 @@
     <script>
         function toggleRename(userId, guildId) {
             const form = document.getElementById(`rename-${userId}-${guildId}`);
+            form.classList.toggle('active');
+        }
+
+        function toggleDayRename(msgId) {
+            const form = document.getElementById(`day-rename-${msgId}`);
             form.classList.toggle('active');
         }
     </script>

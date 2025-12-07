@@ -113,5 +113,8 @@ module.exports = {
     db.prepare('DELETE FROM signups WHERE message_id = ?').run(messageId);
     db.prepare('DELETE FROM teams_v2 WHERE message_id = ?').run(messageId);
     db.prepare('DELETE FROM messages WHERE message_id = ?').run(messageId);
+  },
+  updateMessageDay: (messageId, day) => {
+    return db.prepare('UPDATE messages SET day = ? WHERE message_id = ?').run(day, messageId);
   }
 };
