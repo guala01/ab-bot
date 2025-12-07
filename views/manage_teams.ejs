@@ -80,6 +80,16 @@
             font-size: 0.8em;
         }
 
+        /* Hide slots until JS applies state */
+        .slot-section {
+            opacity: 0;
+            transition: opacity 0.1s;
+        }
+
+        body.ready .slot-section {
+            opacity: 1;
+        }
+
         .slot-section.expanded .slot-title {
             margin-bottom: 15px;
         }
@@ -291,6 +301,8 @@
                 const section = document.getElementById('slot-' + slotId);
                 if (section) section.classList.add('expanded');
             });
+            // Show slots after state is restored
+            document.body.classList.add('ready');
         });
 
         function saveExpandedState() {
