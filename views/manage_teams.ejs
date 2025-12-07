@@ -284,12 +284,32 @@
     <script>
         const messageId = '<%= messageId %>';
 
+        // Restore expanded slots from sessionStorage
+        document.addEventListener('DOMContentLoaded', () => {
+            const expandedSlots = JSON.parse(sessionStorage.getItem('expandedSlots_' + messageId) || '[]');
+            expandedSlots.forEach(slotId => {
+                const section = document.getElementById('slot-' + slotId);
+                if (section) section.classList.add('expanded');
+            });
+        });
+
+        function saveExpandedState() {
+            const expanded = [];
+            document.querySelectorAll('.slot-section.expanded').forEach(el => {
+                expanded.push(el.id.replace('slot-', ''));
+            });
+            sessionStorage.setItem('expandedSlots_' + messageId, JSON.stringify(expanded));
+        }
+
         function toggleSlot(slotId) {
             const section = document.getElementById('slot-' + slotId);
             section.classList.toggle('expanded');
+            saveExpandedState();
         }
 
         async function setTeam(userId, slotTime, team) {
+            // Save state before reload
+            saveExpandedState();
             try {
                 const res = await fetch('/api/teams/update', {
                     method: 'POST',
