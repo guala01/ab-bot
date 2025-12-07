@@ -1,5 +1,6 @@
 const Database = require('better-sqlite3');
 const db = new Database('league.db');
+db.pragma('journal_mode = WAL');
 
 // Initialize database
 db.exec(`
@@ -25,7 +26,29 @@ db.exec(`
     last_seen TEXT,
     PRIMARY KEY (user_id, guild_id)
   );
+
+  CREATE TABLE IF NOT EXISTS messages (
+    message_id TEXT PRIMARY KEY,
+    guild_id TEXT,
+    channel_id TEXT,
+    day TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS teams_v2 (
+    message_id TEXT,
+    user_id TEXT,
+    slot_time TEXT,
+    team TEXT,
+    PRIMARY KEY (message_id, user_id, slot_time)
+  );
 `);
+
+// Add custom_name column if it doesn't exist
+try {
+  db.prepare('ALTER TABLE stats ADD COLUMN custom_name TEXT').run();
+} catch (e) {
+  // Column likely exists
+}
 
 module.exports = {
   getConfig: (guildId, day) => {
@@ -33,6 +56,15 @@ module.exports = {
   },
   saveConfig: (guildId, day, ranges) => {
     return db.prepare('INSERT OR REPLACE INTO configs (guild_id, day, ranges) VALUES (?, ?, ?)').run(guildId, day, ranges);
+  },
+  saveMessage: (messageId, guildId, channelId, day) => {
+    return db.prepare('INSERT OR REPLACE INTO messages (message_id, guild_id, channel_id, day) VALUES (?, ?, ?, ?)').run(messageId, guildId, channelId, day);
+  },
+  getMessage: (messageId) => {
+    return db.prepare('SELECT * FROM messages WHERE message_id = ?').get(messageId);
+  },
+  getAllMessages: () => {
+    return db.prepare('SELECT * FROM messages').all();
   },
   addSignup: (messageId, userId, slotTime, displayName) => {
     return db.prepare('INSERT OR IGNORE INTO signups (message_id, user_id, slot_time, user_display_name) VALUES (?, ?, ?, ?)').run(messageId, userId, slotTime, displayName);
@@ -55,5 +87,31 @@ module.exports = {
   },
   getStats: (guildId) => {
     return db.prepare('SELECT * FROM stats WHERE guild_id = ? ORDER BY count DESC').all(guildId);
+  },
+  getAllStats: () => {
+    return db.prepare('SELECT * FROM stats ORDER BY count DESC').all();
+  },
+  getStat: (userId, guildId) => {
+    return db.prepare('SELECT * FROM stats WHERE user_id = ? AND guild_id = ?').get(userId, guildId);
+  },
+  getAllConfigs: () => {
+    return db.prepare('SELECT * FROM configs').all();
+  },
+  getAllSignups: () => {
+    return db.prepare('SELECT * FROM signups ORDER BY message_id, slot_time ASC').all();
+  },
+  updateCustomName: (userId, guildId, name) => {
+    return db.prepare('UPDATE stats SET custom_name = ? WHERE user_id = ? AND guild_id = ?').run(name, userId, guildId);
+  },
+  setTeam: (messageId, userId, slotTime, team) => {
+    return db.prepare('INSERT OR REPLACE INTO teams_v2 (message_id, user_id, slot_time, team) VALUES (?, ?, ?, ?)').run(messageId, userId, slotTime, team);
+  },
+  getTeams: (messageId) => {
+    return db.prepare('SELECT * FROM teams_v2 WHERE message_id = ?').all(messageId);
+  },
+  deleteMessage: (messageId) => {
+    db.prepare('DELETE FROM signups WHERE message_id = ?').run(messageId);
+    db.prepare('DELETE FROM teams_v2 WHERE message_id = ?').run(messageId);
+    db.prepare('DELETE FROM messages WHERE message_id = ?').run(messageId);
   }
 };

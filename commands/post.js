@@ -88,6 +88,13 @@ module.exports = {
             return interaction.reply({ content: `Too many slots generated (${slots.length}). Discord limits buttons to 25. Please reduce the range.`, flags: 64 });
         }
 
-        await interaction.reply({ embeds: [embed], components: rows });
+        const message = await interaction.reply({ embeds: [embed], components: rows, fetchReply: true });
+
+        // Save message metadata for dashboard
+        try {
+            db.saveMessage(message.id, interaction.guildId, interaction.channelId, day);
+        } catch (e) {
+            console.error('Failed to save message metadata:', e);
+        }
     },
 };
