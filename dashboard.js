@@ -33,11 +33,9 @@ function parseLogFile(filePath) {
                 const guildType = parts[1];
                 if (guildType === 'MY_GUILD') {
                     const name = parts[2];
-                    const className = parts[4];
-                    const spec = parts[5];
                     
                     if (!playerStats.has(name)) {
-                        playerStats.set(name, { name, class: className, spec, count: 0 });
+                        playerStats.set(name, { name, count: 0 });
                     }
                     playerStats.get(name).count++;
                 }
@@ -175,7 +173,7 @@ app.post('/update-game-stats', requireAuth, (req, res) => {
     const stats = parseLogFile(filePath);
     if (stats.length > 0) {
         db.updateGameStats(stats);
-        res.redirect('/dashboard?success=Game stats updated');
+        res.redirect('/dashboard?success=Participation stats updated');
     } else {
         res.redirect('/dashboard?error=Failed to parse log file or empty');
     }

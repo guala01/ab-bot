@@ -44,8 +44,6 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS game_stats (
     character_name TEXT PRIMARY KEY,
-    class TEXT,
-    spec TEXT,
     games_played INTEGER DEFAULT 0,
     last_updated TEXT
   );
@@ -56,6 +54,25 @@ try {
   db.prepare('ALTER TABLE stats ADD COLUMN custom_name TEXT').run();
 } catch (e) {
   // Column likely exists
+}
+
+// Migration: Recreate game_stats if it has old schema (class/spec columns)
+try {
+  const columns = db.pragma('table_info(game_stats)');
+  const hasClass = columns.some(c => c.name === 'class');
+  if (hasClass) {
+    console.log('Migrating game_stats table to new schema...');
+    db.prepare('DROP TABLE game_stats').run();
+    db.exec(`
+      CREATE TABLE game_stats (
+        character_name TEXT PRIMARY KEY,
+        games_played INTEGER DEFAULT 0,
+        last_updated TEXT
+      );
+    `);
+  }
+} catch (e) {
+  console.error('Migration error:', e);
 }
 
 module.exports = {
@@ -109,7 +126,7 @@ module.exports = {
     return db.prepare('SELECT * FROM signups ORDER BY message_id, slot_time ASC').all();
   },
   updateGameStats: (stats) => {
-    const insert = db.prepare("INSERT OR REPLACE INTO game_stats (character_name, class, spec, games_played, last_updated) VALUES (@name, @class, @spec, @count, datetime('now'))");
+    const insert = db.prepare("INSERT OR REPLACE INTO game_stats (character_name, games_played, last_updated) VALUES (@name, @count, datetime('now'))");
     const deleteOld = db.prepare('DELETE FROM game_stats');
     
     const transaction = db.transaction((stats) => {
