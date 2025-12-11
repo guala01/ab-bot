@@ -150,6 +150,20 @@ app.get('/dashboard', requireAuth, async (req, res) => {
 
         const gameStats = db.getGameStats();
 
+        // Create a map of custom_name -> signup count from stats table
+        const signupCounts = new Map();
+        stats.forEach(s => {
+            if (s.custom_name) {
+                const current = signupCounts.get(s.custom_name) || 0;
+                signupCounts.set(s.custom_name, current + s.count);
+            }
+        });
+
+        // Enrich gameStats with signup counts
+        gameStats.forEach(gs => {
+            gs.signup_count = signupCounts.get(gs.character_name) || 0;
+        });
+
         res.render('dashboard', {
             user: 'Admin',
             stats: stats,
