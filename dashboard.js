@@ -2,6 +2,7 @@ const express = require('express');
 const session = require('express-session');
 const bodyParser = require('body-parser');
 const path = require('path');
+const fs = require('fs');
 const db = require('./db');
 const { Client, GatewayIntentBits } = require('discord.js');
 
@@ -19,6 +20,36 @@ const client = new Client({
 // Cache for names to avoid rate limits
 const userCache = new Map();
 const guildCache = new Map();
+
+function parseLogFile(filePath) {
+    try {
+        const content = fs.readFileSync(filePath, 'utf8');
+        const lines = content.split('\n');
+        const playerStats = new Map(); // name -> { name, class, spec, count }
+
+        for (const line of lines) {
+            const parts = line.trim().split('|');
+            if (parts[0] === 'PLAYER') {
+                const guildType = parts[1];
+                if (guildType === 'MY_GUILD') {
+                    const name = parts[2];
+                    const className = parts[4];
+                    const spec = parts[5];
+                    
+                    if (!playerStats.has(name)) {
+                        playerStats.set(name, { name, class: className, spec, count: 0 });
+                    }
+                    playerStats.get(name).count++;
+                }
+            }
+        }
+        
+        return Array.from(playerStats.values());
+    } catch (e) {
+        console.error('Error parsing log file:', e);
+        return [];
+    }
+}
 
 async function resolveUser(id) {
     if (userCache.has(id)) return userCache.get(id);
@@ -119,15 +150,34 @@ app.get('/dashboard', requireAuth, async (req, res) => {
             signupsByMessage[key].signups.push(s);
         }
 
+        const gameStats = db.getGameStats();
+
         res.render('dashboard', {
             user: 'Admin',
             stats: stats,
+            gameStats: gameStats,
             configs: configsByGuild,
             signups: signupsByMessage
         });
     } catch (err) {
         console.error("Dashboard error:", err);
-        res.render('dashboard', { user: 'Admin', stats: [], configs: {}, signups: {} });
+        res.render('dashboard', { user: 'Admin', stats: [], gameStats: [], configs: {}, signups: {} });
+    }
+});
+
+app.post('/update-game-stats', requireAuth, (req, res) => {
+    const filePath = path.join(__dirname, 'bdo_guild_match_log.txt');
+    
+    if (!fs.existsSync(filePath)) {
+        return res.redirect('/dashboard?error=Log file not found in root directory');
+    }
+    
+    const stats = parseLogFile(filePath);
+    if (stats.length > 0) {
+        db.updateGameStats(stats);
+        res.redirect('/dashboard?success=Game stats updated');
+    } else {
+        res.redirect('/dashboard?error=Failed to parse log file or empty');
     }
 });
 

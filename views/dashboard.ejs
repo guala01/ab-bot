@@ -260,6 +260,44 @@
             <a href="/logout" class="logout-btn">Logout</a>
         </header>
 
+        <!-- Game Stats Management -->
+        <section>
+            <h2>🎮 Game Stats</h2>
+            <div class="table-container" style="padding: 20px; margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0;">Leaderboard</h3>
+                    <form action="/update-game-stats" method="POST" style="margin: 0;">
+                        <button type="submit" class="btn btn-primary">🔄 Update from Log File</button>
+                    </form>
+                </div>
+            </div>
+
+            <% if (gameStats && gameStats.length > 0) { %>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Character Name</th>
+                            <th>Class</th>
+                            <th>Spec</th>
+                            <th>Games Played</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% gameStats.forEach(stat => { %>
+                            <tr>
+                                <td><%= stat.character_name %></td>
+                                <td><%= stat.class %></td>
+                                <td><%= stat.spec %></td>
+                                <td><%= stat.games_played %></td>
+                            </tr>
+                        <% }); %>
+                    </tbody>
+                </table>
+            </div>
+            <% } %>
+        </section>
+
         <!-- Active Signups -->
         <section>
             <h2>📋 Active Signups</h2>

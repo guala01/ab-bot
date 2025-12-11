@@ -41,6 +41,14 @@ db.exec(`
     team TEXT,
     PRIMARY KEY (message_id, user_id, slot_time)
   );
+
+  CREATE TABLE IF NOT EXISTS game_stats (
+    character_name TEXT PRIMARY KEY,
+    class TEXT,
+    spec TEXT,
+    games_played INTEGER DEFAULT 0,
+    last_updated TEXT
+  );
 `);
 
 // Add custom_name column if it doesn't exist
@@ -99,6 +107,19 @@ module.exports = {
   },
   getAllSignups: () => {
     return db.prepare('SELECT * FROM signups ORDER BY message_id, slot_time ASC').all();
+  },
+  updateGameStats: (stats) => {
+    const insert = db.prepare('INSERT OR REPLACE INTO game_stats (character_name, class, spec, games_played, last_updated) VALUES (@name, @class, @spec, @count, datetime("now"))');
+    const deleteOld = db.prepare('DELETE FROM game_stats');
+    
+    const transaction = db.transaction((stats) => {
+      deleteOld.run();
+      for (const stat of stats) insert.run(stat);
+    });
+    transaction(stats);
+  },
+  getGameStats: () => {
+    return db.prepare('SELECT * FROM game_stats ORDER BY games_played DESC').all();
   },
   updateCustomName: (userId, guildId, name) => {
     return db.prepare('UPDATE stats SET custom_name = ? WHERE user_id = ? AND guild_id = ?').run(name, userId, guildId);

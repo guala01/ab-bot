@@ -4,3 +4,4 @@ league.db
 league.db-journal
 npm-debug.log
 .DS_Store
+bdo_guild_match_log.txt
