@@ -348,13 +348,14 @@
                             <th>Player</th>
                             <th>Guild</th>
                             <th>Signups</th>
+                            <th>Games Played</th>
                             <th>Last Active</th>
                         </tr>
                     </thead>
                     <tbody>
                         <% if (stats.length===0) { %>
                             <tr>
-                                <td colspan="4" style="text-align:center; color:#555;">No stats yet.</td>
+                                <td colspan="5" style="text-align:center; color:#555;">No stats yet.</td>
                             </tr>
                             <% } %>
                                 <% stats.forEach(function(player) { %>
@@ -383,6 +384,9 @@
                                         <td><strong style="color:#66bb6a;">
                                                 <%= player.count %>
                                             </strong></td>
+                                        <td>
+                                            <%= player.games_played %>
+                                        </td>
                                         <td style="color:#666;">
                                             <%= player.last_seen %>
                                         </td>

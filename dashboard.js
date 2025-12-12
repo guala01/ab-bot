@@ -120,11 +120,25 @@ app.get('/dashboard', requireAuth, async (req, res) => {
         // Map message metadata
         const messageMap = new Map();
         messages.forEach(m => messageMap.set(m.message_id, m));
-        // Enrich Stats with Names
-        for (const s of stats) {
+        
+        // Fetch Game Stats
+        const gameStats = db.getGameStats();
+        const gameStatsMap = new Map();
+        gameStats.forEach(gs => {
+            gameStatsMap.set(gs.character_name, gs.games_played);
+        });
+
+        // Enrich Stats with Names and Game Counts
+        const enrichmentPromises = stats.map(async s => {
             s.username = await resolveUser(s.user_id);
             s.guildName = await resolveGuild(s.guild_id);
-        }
+            
+            // Match with game stats using custom_name (priority) or username
+            const lookupName = s.custom_name || s.username; // Note: Log file usually has character names, so custom_name is key
+            s.games_played = gameStatsMap.get(lookupName) || 0;
+        });
+        
+        await Promise.all(enrichmentPromises);
 
         // Group configs by guild
         const configsByGuild = {};
@@ -147,8 +161,6 @@ app.get('/dashboard', requireAuth, async (req, res) => {
             }
             signupsByMessage[key].signups.push(s);
         }
-
-        const gameStats = db.getGameStats();
 
         // Create a map of custom_name -> signup count from stats table
         const signupCounts = new Map();
