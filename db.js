@@ -138,6 +138,35 @@ module.exports = {
   getGameStats: () => {
     return db.prepare('SELECT * FROM game_stats ORDER BY games_played DESC').all();
   },
+  syncStatsFromSignups: () => {
+    // Get counts from signups joined with messages to get guild_id
+    const rows = db.prepare(`
+      SELECT 
+        s.user_id, 
+        m.guild_id, 
+        COUNT(*) as count
+      FROM signups s
+      JOIN messages m ON s.message_id = m.message_id
+      GROUP BY s.user_id, m.guild_id
+    `).all();
+
+    const insert = db.prepare(`
+      INSERT INTO stats (user_id, guild_id, count, last_seen)
+      VALUES (@user_id, @guild_id, @count, datetime('now'))
+      ON CONFLICT(user_id, guild_id) DO UPDATE SET
+      count = @count
+    `);
+    
+    const transaction = db.transaction((rows) => {
+      for (const row of rows) {
+        if (row.guild_id) {
+            insert.run(row);
+        }
+      }
+    });
+    
+    transaction(rows);
+  },
   updateCustomName: (userId, guildId, name) => {
     return db.prepare('UPDATE stats SET custom_name = ? WHERE user_id = ? AND guild_id = ?').run(name, userId, guildId);
   },

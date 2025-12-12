@@ -216,6 +216,16 @@ app.post('/api/player/rename', requireAuth, (req, res) => {
     }
 });
 
+app.post('/api/sync-stats', requireAuth, (req, res) => {
+    try {
+        db.syncStatsFromSignups();
+        res.redirect('/dashboard?success=Stats synced from signups');
+    } catch (e) {
+        console.error(e);
+        res.redirect('/dashboard?error=Failed to sync stats');
+    }
+});
+
 app.get('/manage-teams/:messageId', requireAuth, async (req, res) => {
     const { messageId } = req.params;
     try {

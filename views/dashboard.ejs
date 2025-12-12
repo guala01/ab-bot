@@ -340,7 +340,12 @@
 
         <!-- Leaderboard -->
         <section>
-            <h2>Discord List</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h2>Discord List</h2>
+                <form action="/api/sync-stats" method="POST" style="margin: 0;">
+                    <button type="submit" class="btn btn-primary" title="Fix missing players">🔄 Sync Signups</button>
+                </form>
+            </div>
             <div class="table-container">
                 <table>
                     <thead>
