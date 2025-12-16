@@ -2,6 +2,8 @@ node_modules
 .env
 league.db
 league.db-journal
+league.db-shm
+league.db-wal
 npm-debug.log
 .DS_Store
 bdo_guild_match_log.txt
