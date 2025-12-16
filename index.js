@@ -69,14 +69,16 @@ client.on(Events.InteractionCreate, async interaction => {
                 const signups = db.getSignups(messageId);
                 const isSignedUp = signups.some(s => s.user_id === userId && s.slot_time === timeSlot);
 
+                // Acknowledge interaction without sending a message
+                await interaction.deferUpdate();
+
                 if (isSignedUp) {
                     db.removeSignup(messageId, userId, timeSlot);
-                    await interaction.reply({ content: `Removed signup for ${timeSlot}`, flags: 64 });
+                    db.decrementStat(userId, interaction.guildId);
                 } else {
                     db.addSignup(messageId, userId, timeSlot, displayName);
                     // Increment stats on signup (simple approach, or could be done when event closes)
                     db.incrementStat(userId, interaction.guildId);
-                    await interaction.reply({ content: `Signed up for ${timeSlot}`, flags: 64 });
                 }
 
                 // Update the embed
@@ -112,7 +114,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     newEmbed.addFields({ name: `🫄🏿 ${slot} (${users.length})`, value: value, inline: true });
                 }
 
-                await interaction.message.edit({ embeds: [newEmbed] });
+                await interaction.editReply({ embeds: [newEmbed] });
             }
         } catch (error) {
             console.error('Error handling button interaction:', error);

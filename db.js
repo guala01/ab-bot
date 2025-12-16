@@ -110,6 +110,14 @@ module.exports = {
     `);
     return stmt.run(userId, guildId);
   },
+  decrementStat: (userId, guildId) => {
+    const stmt = db.prepare(`
+      UPDATE stats 
+      SET count = MAX(0, count - 1) 
+      WHERE user_id = ? AND guild_id = ?
+    `);
+    return stmt.run(userId, guildId);
+  },
   getStats: (guildId) => {
     return db.prepare('SELECT * FROM stats WHERE guild_id = ? ORDER BY count DESC').all(guildId);
   },
@@ -128,7 +136,7 @@ module.exports = {
   updateGameStats: (stats) => {
     const insert = db.prepare("INSERT OR REPLACE INTO game_stats (character_name, games_played, last_updated) VALUES (@name, @count, datetime('now'))");
     const deleteOld = db.prepare('DELETE FROM game_stats');
-    
+
     const transaction = db.transaction((stats) => {
       deleteOld.run();
       for (const stat of stats) insert.run(stat);
@@ -156,15 +164,15 @@ module.exports = {
       ON CONFLICT(user_id, guild_id) DO UPDATE SET
       count = @count
     `);
-    
+
     const transaction = db.transaction((rows) => {
       for (const row of rows) {
         if (row.guild_id) {
-            insert.run(row);
+          insert.run(row);
         }
       }
     });
-    
+
     transaction(rows);
   },
   updateCustomName: (userId, guildId, name) => {
