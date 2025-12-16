@@ -118,6 +118,15 @@ module.exports = {
     `);
     return stmt.run(userId, guildId);
   },
+  setStatCount: (userId, guildId, count) => {
+    const stmt = db.prepare(`
+        INSERT INTO stats (user_id, guild_id, count, last_seen)
+        VALUES (?, ?, ?, datetime('now'))
+        ON CONFLICT(user_id, guild_id) DO UPDATE SET
+        count = ?
+    `);
+    return stmt.run(userId, guildId, count, count);
+  },
   getStats: (guildId) => {
     return db.prepare('SELECT * FROM stats WHERE guild_id = ? ORDER BY count DESC').all(guildId);
   },
