@@ -12,6 +12,59 @@ const client = new Client({
 
 client.commands = new Collection();
 
+const buildSignupEmbedFromMessage = (message, messageId) => {
+    const rows = message.components || [];
+    let allSlots = [];
+    let embedTeamMode = null;
+    rows.forEach(row => {
+        row.components.forEach(component => {
+            if (component.customId && component.customId.startsWith('signup_')) {
+                const p = parseSignupCustomId(component.customId);
+                if (!p) return;
+                if (!embedTeamMode) embedTeamMode = p.teamMode;
+                allSlots.push(p.timeSlot);
+            }
+        });
+    });
+
+    const updatedSignups = db.getSignups(messageId);
+    const signupsBySlot = {};
+    allSlots.forEach(slot => signupsBySlot[slot] = []);
+    updatedSignups.forEach(s => {
+        if (signupsBySlot[s.slot_time]) signupsBySlot[s.slot_time].push(s.user_display_name);
+    });
+
+    const existing = message.embeds && message.embeds[0] ? message.embeds[0] : null;
+    const newEmbed = existing ? EmbedBuilder.from(existing) : new EmbedBuilder();
+    newEmbed.setFields([]);
+
+    const fieldPrefix = embedTeamMode === 'B' ? '🟩 Team B •' : embedTeamMode === 'A' ? '🟥 Team A •' : '🫄🏿';
+    for (const slot of allSlots) {
+        const users = signupsBySlot[slot] || [];
+        const value = users.length > 0 ? users.join(', ') : '-';
+        newEmbed.addFields({ name: `${fieldPrefix} ${slot} (${users.length})`, value: value, inline: true });
+    }
+
+    return newEmbed;
+};
+
+const refreshSignupMessages = async (messageIds) => {
+    const uniqueMessageIds = Array.from(new Set((messageIds || []).map(String).filter(Boolean)));
+    for (const mid of uniqueMessageIds) {
+        try {
+            const meta = db.getMessage(mid);
+            if (!meta || !meta.channel_id) continue;
+            const channel = await client.channels.fetch(meta.channel_id);
+            if (!channel || !channel.isTextBased()) continue;
+            const msg = await channel.messages.fetch(mid);
+            const embed = buildSignupEmbedFromMessage(msg, mid);
+            await msg.edit({ embeds: [embed] });
+        } catch (e) {
+            console.error(`Failed to refresh signup message ${mid}:`, e.message);
+        }
+    }
+};
+
 // Load commands
 const commandsPath = path.join(__dirname, 'commands');
 // Ensure commands directory exists
@@ -90,12 +143,34 @@ client.on(Events.InteractionCreate, async interaction => {
                     db.removeTeam(messageId, userId, timeSlot);
                     db.decrementStat(userId, interaction.guildId);
                 } else {
+                    const meta = db.getMessage(messageId);
+                    let relatedMessageIds = [messageId];
+                    if (meta && meta.guild_id && meta.day) {
+                        const related = db.getMessagesByGuildDay(meta.guild_id, meta.day);
+                        relatedMessageIds = Array.from(new Set([messageId, ...related.map(r => r.message_id)]));
+                    }
+
+                    const existingAcrossGroup = db.getUserSignupsForMessagesSlot(relatedMessageIds, userId, timeSlot);
+                    const removedFrom = [];
+                    existingAcrossGroup.forEach(su => {
+                        if (su.message_id !== messageId) {
+                            db.removeSignup(su.message_id, userId, timeSlot);
+                            db.removeTeam(su.message_id, userId, timeSlot);
+                            db.decrementStat(userId, interaction.guildId);
+                            removedFrom.push(su.message_id);
+                        }
+                    });
+
                     db.addSignup(messageId, userId, timeSlot, displayName);
                     if (teamMode === 'A' || teamMode === 'B') {
                         db.setTeam(messageId, userId, timeSlot, teamMode);
                     }
                     // Increment stats on signup (simple approach, or could be done when event closes)
                     db.incrementStat(userId, interaction.guildId);
+
+                    if (removedFrom.length > 0) {
+                        await refreshSignupMessages(removedFrom);
+                    }
                 }
 
                 // Update the embed

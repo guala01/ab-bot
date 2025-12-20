@@ -91,6 +91,9 @@ module.exports = {
   getAllMessages: () => {
     return db.prepare('SELECT * FROM messages').all();
   },
+  getMessagesByGuildDay: (guildId, day) => {
+    return db.prepare('SELECT * FROM messages WHERE guild_id = ? AND day = ?').all(guildId, day);
+  },
   addSignup: (messageId, userId, slotTime, displayName) => {
     return db.prepare('INSERT OR IGNORE INTO signups (message_id, user_id, slot_time, user_display_name) VALUES (?, ?, ?, ?)').run(messageId, userId, slotTime, displayName);
   },
@@ -146,6 +149,11 @@ module.exports = {
     if (!Array.isArray(messageIds) || messageIds.length === 0) return [];
     const placeholders = messageIds.map(() => '?').join(',');
     return db.prepare(`SELECT * FROM signups WHERE message_id IN (${placeholders}) ORDER BY message_id, slot_time ASC`).all(...messageIds);
+  },
+  getUserSignupsForMessagesSlot: (messageIds, userId, slotTime) => {
+    if (!Array.isArray(messageIds) || messageIds.length === 0) return [];
+    const placeholders = messageIds.map(() => '?').join(',');
+    return db.prepare(`SELECT * FROM signups WHERE message_id IN (${placeholders}) AND user_id = ? AND slot_time = ?`).all(...messageIds, userId, slotTime);
   },
   getTeamsForMessages: (messageIds) => {
     if (!Array.isArray(messageIds) || messageIds.length === 0) return [];
