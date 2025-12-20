@@ -8,9 +8,19 @@ module.exports = {
         .addStringOption(option =>
             option.setName('day')
                 .setDescription('Day of the week to post signups for')
-                .setRequired(true)),
+                .setRequired(true))
+        .addStringOption(option =>
+            option.setName('team')
+                .setDescription('Optional: post a team-specific signup (A or B)')
+                .addChoices(
+                    { name: 'All / Unassigned', value: 'M' },
+                    { name: 'Team A', value: 'A' },
+                    { name: 'Team B', value: 'B' }
+                )
+                .setRequired(false)),
     async execute(interaction) {
         const day = interaction.options.getString('day');
+        const teamMode = interaction.options.getString('team') || 'M';
         const config = db.getConfig(interaction.guildId, day);
 
         if (!config) {
@@ -52,14 +62,22 @@ module.exports = {
         }
 
         // Create Embed
+        const titleSuffix = teamMode === 'A' ? ' (Team A)' : teamMode === 'B' ? ' (Team B)' : '';
+        const teamLine = teamMode === 'A'
+            ? '\n\n**This signup is for Team A only.**'
+            : teamMode === 'B'
+                ? '\n\n**This signup is for Team B only.**'
+                : '';
+
         const embed = new EmbedBuilder()
-            .setTitle(`Guild League Signups - ${day}`)
-            .setDescription(`Click the buttons below to sign up for specific time slots.\nTimes are in server time (or configured timezone).`)
-            .setColor(0x0099FF);
+            .setTitle(`Guild League Signups - ${day}${titleSuffix}`)
+            .setDescription(`Click the buttons below to sign up for specific time slots.\nTimes are in server time (or configured timezone).${teamLine}`)
+            .setColor(teamMode === 'B' ? 0x2ECC71 : teamMode === 'A' ? 0xE74C3C : 0x0099FF);
 
         // Add initial fields (empty)
+        const fieldPrefix = teamMode === 'B' ? '🟩 Team B •' : teamMode === 'A' ? '🟥 Team A •' : '🫄🏿';
         for (const slot of slots) {
-            embed.addFields({ name: `🫄🏿 ${slot} (0)`, value: '-', inline: true });
+            embed.addFields({ name: `${fieldPrefix} ${slot} (0)`, value: '-', inline: true });
         }
 
         // Create Buttons (max 5 per row, max 5 rows = 25 buttons max)
@@ -75,7 +93,7 @@ module.exports = {
             }
             currentRow.addComponents(
                 new ButtonBuilder()
-                    .setCustomId(`signup_${slot}`)
+                    .setCustomId(`signup_${teamMode}_${slot}`)
                     .setLabel(slot)
                     .setStyle(ButtonStyle.Primary)
             );

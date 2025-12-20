@@ -299,36 +299,38 @@
         <!-- Active Signups -->
         <section>
             <h2>📋 Active Signups</h2>
-            <% const messageIds=Object.keys(signups); %>
-                <% if (messageIds.length===0) { %>
+            <% const groups = signupGroups || []; %>
+                <% if (groups.length===0) { %>
                     <div class="empty-state">No active signups found.</div>
                     <% } else { %>
                         <div class="signup-grid">
-                            <% messageIds.forEach(function(msgId) { %>
-                                <% const post=signups[msgId]; %>
+                            <% groups.forEach(function(group) { %>
+                                <% const domId = encodeURIComponent(group.id); %>
+                                <% const messageIdsStr = (group.messageIds || []).join(','); %>
                                     <div class="signup-card">
                                         <h3>
-                                            <%= post.day %>
+                                            <%= group.day %>
                                                 <button class="rename-btn"
-                                                    onclick="toggleDayRename('<%= msgId %>')">✏️</button>
+                                                    onclick="toggleDayRename('<%= domId %>')">✏️</button>
                                         </h3>
-                                        <form id="day-rename-<%= msgId %>" class="rename-form"
-                                            action="/api/signup/rename" method="POST">
-                                            <input type="hidden" name="messageId" value="<%= msgId %>">
+                                        <form id="day-rename-<%= domId %>" class="rename-form"
+                                            action="/api/signup-group/rename" method="POST">
+                                            <input type="hidden" name="messageIds" value="<%= messageIdsStr %>">
                                             <input type="text" name="dayName" placeholder="New day name"
-                                                value="<%= post.day %>">
+                                                value="<%= group.day %>">
                                             <button type="submit">Save</button>
                                         </form>
-                                        <div class="meta">ID: <%= msgId.substring(0, 8) %>...</div>
+                                        <div class="meta">Messages: <%= (group.messageIds || []).length %></div>
                                         <div class="player-count">
-                                            <%= post.signups.length %> <span>players</span>
+                                            <%= (group.signups || []).length %> <span>players</span>
                                         </div>
                                         <div class="actions">
-                                            <a href="/manage-teams/<%= msgId %>" class="btn btn-primary">Manage
+                                            <a href="/manage-teams?messageIds=<%= encodeURIComponent(messageIdsStr) %>"
+                                                class="btn btn-primary">Manage
                                                 Teams</a>
-                                            <form action="/api/signup/delete" method="POST" style="display:inline;"
-                                                onsubmit="return confirm('Delete this signup post?')">
-                                                <input type="hidden" name="messageId" value="<%= msgId %>">
+                                            <form action="/api/signup-group/delete" method="POST" style="display:inline;"
+                                                onsubmit="return confirm('Delete this signup group?')">
+                                                <input type="hidden" name="messageIds" value="<%= messageIdsStr %>">
                                                 <button type="submit" class="btn btn-danger">Delete</button>
                                             </form>
                                         </div>

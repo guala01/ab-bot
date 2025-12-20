@@ -49,6 +49,28 @@
             margin-bottom: 25px;
         }
 
+        .remind-btn {
+            background: #0099ff;
+            color: #121212;
+            border: none;
+            padding: 10px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: opacity 0.2s;
+        }
+
+        .remind-btn:hover {
+            opacity: 0.85;
+        }
+
+        .slot-title .remind-btn {
+            margin-left: auto;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+
         .slot-section {
             margin-bottom: 25px;
             background: #1e1e1e;
@@ -197,7 +219,7 @@
         <a href="/dashboard" class="back-link">← Back to Dashboard</a>
         <h1>Manage Teams: <%= day %>
         </h1>
-        <div class="meta">Message ID: <%= messageId %>
+        <div class="meta">Message IDs: <%= messageId %>
         </div>
 
         <% // Custom sort: treat 00:00-05:59 as "after 24:00" for proper ordering const
@@ -220,6 +242,7 @@
                                     <div class="slot-title" onclick="toggleSlot('<%= time.replace(':', '-') %>')">
                                         <span class="arrow">▶</span>
                                         🕐 <%= time %> <span style="opacity:0.7;">(<%= total %>)</span>
+                                        <button class="remind-btn" onclick="event.stopPropagation(); sendTeamReminders('<%= time %>')">Remind</button>
                                     </div>
                                     <div class="teams-container">
                                         <!-- Unassigned -->
@@ -237,11 +260,11 @@
                                                                 <%= s.username %>
                                                             </div>
                                                         </div>
-                                                        <div class="actions">
+                                                            <div class="actions">
                                                             <button class="btn-a"
-                                                                onclick="setTeam('<%= s.user_id %>', '<%= time %>', 'A')">A</button>
+                                                                onclick="setTeam('<%= s.message_id %>', '<%= s.user_id %>', '<%= time %>', 'A')">A</button>
                                                             <button class="btn-b"
-                                                                onclick="setTeam('<%= s.user_id %>', '<%= time %>', 'B')">B</button>
+                                                                onclick="setTeam('<%= s.message_id %>', '<%= s.user_id %>', '<%= time %>', 'B')">B</button>
                                                         </div>
                                                     </div>
                                                     <% } }); %>
@@ -261,9 +284,9 @@
                                                         </div>
                                                         <div class="actions">
                                                             <button class="btn-u"
-                                                                onclick="setTeam('<%= s.user_id %>', '<%= time %>', null)">✕</button>
+                                                                onclick="setTeam('<%= s.message_id %>', '<%= s.user_id %>', '<%= time %>', null)">✕</button>
                                                             <button class="btn-b"
-                                                                onclick="setTeam('<%= s.user_id %>', '<%= time %>', 'B')">→B</button>
+                                                                onclick="setTeam('<%= s.message_id %>', '<%= s.user_id %>', '<%= time %>', 'B')">→B</button>
                                                         </div>
                                                     </div>
                                                     <% } }); %>
@@ -283,9 +306,9 @@
                                                         </div>
                                                         <div class="actions">
                                                             <button class="btn-u"
-                                                                onclick="setTeam('<%= s.user_id %>', '<%= time %>', null)">✕</button>
+                                                                onclick="setTeam('<%= s.message_id %>', '<%= s.user_id %>', '<%= time %>', null)">✕</button>
                                                             <button class="btn-a"
-                                                                onclick="setTeam('<%= s.user_id %>', '<%= time %>', 'A')">→A</button>
+                                                                onclick="setTeam('<%= s.message_id %>', '<%= s.user_id %>', '<%= time %>', 'A')">→A</button>
                                                         </div>
                                                     </div>
                                                     <% } }); %>
@@ -299,11 +322,12 @@
     </div>
 
     <script>
-        const messageId = '<%= messageId %>';
+        const messageIds = <%- JSON.stringify(messageIds || []) %>;
+        const messageKey = '<%= messageKey %>';
 
         // Restore expanded slots from sessionStorage
         document.addEventListener('DOMContentLoaded', () => {
-            const expandedSlots = JSON.parse(sessionStorage.getItem('expandedSlots_' + messageId) || '[]');
+            const expandedSlots = JSON.parse(sessionStorage.getItem('expandedSlots_' + messageKey) || '[]');
             expandedSlots.forEach(slotId => {
                 const section = document.getElementById('slot-' + slotId);
                 if (section) section.classList.add('expanded');
@@ -317,7 +341,7 @@
             document.querySelectorAll('.slot-section.expanded').forEach(el => {
                 expanded.push(el.id.replace('slot-', ''));
             });
-            sessionStorage.setItem('expandedSlots_' + messageId, JSON.stringify(expanded));
+            sessionStorage.setItem('expandedSlots_' + messageKey, JSON.stringify(expanded));
         }
 
         function toggleSlot(slotId) {
@@ -326,7 +350,7 @@
             saveExpandedState();
         }
 
-        async function setTeam(userId, slotTime, team) {
+        async function setTeam(messageId, userId, slotTime, team) {
             // Save state before reload
             saveExpandedState();
             try {
@@ -343,6 +367,41 @@
             } catch (e) {
                 console.error(e);
                 alert('Error updating team');
+            }
+        }
+
+        async function sendTeamReminders(slotTime) {
+            if (!Array.isArray(messageIds) || messageIds.length === 0) return;
+            if (typeof slotTime !== 'string' || slotTime.length === 0) return;
+            const ok = confirm(`Send reminder pings for ${slotTime}?`);
+            if (!ok) return;
+            try {
+                const res = await fetch('/api/remind-teams', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messageIds, slotTime })
+                });
+                const data = await res.json().catch(() => null);
+                if (!res.ok) {
+                    alert(data && data.error ? data.error : 'Failed to send reminders');
+                    return;
+                }
+                const lines = [];
+                lines.push(`Sent ${data.sent || 0} message(s).`);
+                if (typeof data.attempted === 'number') lines.push(`Matches processed: ${data.attempted}`);
+                if (Array.isArray(data.skippedMessageIds) && data.skippedMessageIds.length > 0) {
+                    lines.push(`Skipped message IDs (missing metadata): ${data.skippedMessageIds.join(', ')}`);
+                }
+                if (Array.isArray(data.usedFallbackForMessageIds) && data.usedFallbackForMessageIds.length > 0) {
+                    lines.push(`Used fallback channel for: ${data.usedFallbackForMessageIds.join(', ')}`);
+                }
+                if (Array.isArray(data.errors) && data.errors.length > 0) {
+                    lines.push(`Errors: ${data.errors.map(e => (e && e.error) ? e.error : 'Unknown').join(' | ')}`);
+                }
+                alert(lines.join('\n'));
+            } catch (e) {
+                console.error(e);
+                alert('Failed to send reminders');
             }
         }
     </script>

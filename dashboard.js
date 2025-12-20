@@ -14,7 +14,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
 
 // Initialize Discord Client
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
+    intents: [GatewayIntentBits.Guilds]
 });
 
 // Cache for names to avoid rate limits
@@ -74,6 +74,150 @@ async function resolveGuild(id) {
         return id;
     }
 }
+
+function chunkMentions(prefix, userIds, maxLen) {
+    const chunks = [];
+    let current = prefix;
+    for (const userId of userIds) {
+        const mention = `<@${userId}>`;
+        const next = current.length === prefix.length ? `${current} ${mention}` : `${current} ${mention}`;
+        if (next.length > maxLen) {
+            if (current !== prefix) chunks.push(current);
+            current = `${prefix} ${mention}`;
+        } else {
+            current = next;
+        }
+    }
+    if (current !== prefix) chunks.push(current);
+    return chunks;
+}
+
+async function sendTeamRemindersToChannels({ messageIds, slotTime }) {
+    const signups = db.getSignupsForMessages(messageIds);
+    const teamsRaw = db.getTeamsForMessages(messageIds);
+    const messageMetas = messageIds.map(id => db.getMessage(id)).filter(Boolean);
+
+    const metaByMessageId = new Map();
+    for (const m of messageMetas) metaByMessageId.set(m.message_id, m);
+    const fallbackMeta = messageMetas.find(m => m && m.channel_id && m.guild_id) || null;
+
+    const teamsMap = {};
+    teamsRaw.forEach(t => {
+        teamsMap[`${t.message_id}_${t.user_id}_${t.slot_time}`] = t.team;
+    });
+
+    const buckets = new Map();
+    const skippedMessageIds = [];
+    const usedFallbackForMessageIds = [];
+
+    for (const s of signups) {
+        if (slotTime && s.slot_time !== slotTime) continue;
+        let meta = metaByMessageId.get(s.message_id);
+        if (!meta || !meta.channel_id || !meta.guild_id) {
+            if (fallbackMeta) {
+                meta = fallbackMeta;
+                usedFallbackForMessageIds.push(s.message_id);
+            } else {
+                skippedMessageIds.push(s.message_id);
+                continue;
+            }
+        }
+
+        const team = teamsMap[`${s.message_id}_${s.user_id}_${s.slot_time}`] || null;
+        if (team !== 'A' && team !== 'B') continue;
+
+        const bucketKey = `${meta.channel_id}::${s.slot_time}`;
+        if (!buckets.has(bucketKey)) {
+            buckets.set(bucketKey, {
+                channelId: meta.channel_id,
+                guildId: meta.guild_id,
+                day: meta.day || null,
+                slotTime: s.slot_time,
+                messageLinks: new Set(),
+                teamA: new Set(),
+                teamB: new Set()
+            });
+        }
+
+        const bucket = buckets.get(bucketKey);
+        bucket.messageLinks.add(`https://discord.com/channels/${meta.guild_id}/${meta.channel_id}/${s.message_id}`);
+        if (team === 'A') bucket.teamA.add(s.user_id);
+        if (team === 'B') bucket.teamB.add(s.user_id);
+    }
+
+    const uniqueSkipped = Array.from(new Set(skippedMessageIds));
+    const uniqueFallback = Array.from(new Set(usedFallbackForMessageIds));
+
+    let attempted = 0;
+    let sent = 0;
+    const errors = [];
+
+    for (const bucket of buckets.values()) {
+        const teamAIds = Array.from(bucket.teamA);
+        const teamBIds = Array.from(bucket.teamB);
+        if (teamAIds.length === 0 && teamBIds.length === 0) continue;
+        if (teamAIds.length === 0 || teamBIds.length === 0) continue;
+
+        attempted += 1;
+
+        const dayPart = bucket.day ? `${bucket.day} ` : '';
+        const header = `Hey! Team A and Team B — ${dayPart}${bucket.slotTime} match is about to start.`;
+        const links = Array.from(bucket.messageLinks).slice(0, 3);
+        const linksPart = links.length > 0 ? `\n${links.join('\n')}` : '';
+
+        const aChunks = chunkMentions(`Team A (${teamAIds.length}):`, teamAIds, 1900);
+        const bChunks = chunkMentions(`Team B (${teamBIds.length}):`, teamBIds, 1900);
+
+        const payloads = [];
+        if (aChunks.length === 1 && bChunks.length === 1) {
+            const content = `${header}\n${aChunks[0]}\n${bChunks[0]}${linksPart}`;
+            if (content.length <= 2000) {
+                payloads.push({ content, userIds: [...teamAIds, ...teamBIds] });
+            }
+        }
+
+        if (payloads.length === 0) {
+            const aPayloads = aChunks.map((chunk, idx) => ({
+                content: `${header}\n${chunk}${idx === 0 ? linksPart : ''}`,
+                userIds: teamAIds
+            }));
+            const bPayloads = bChunks.map((chunk, idx) => ({
+                content: `${header}\n${chunk}${idx === 0 && aPayloads.length === 0 ? linksPart : ''}`,
+                userIds: teamBIds
+            }));
+            payloads.push(...aPayloads, ...bPayloads);
+        }
+
+        try {
+            const channel = await client.channels.fetch(bucket.channelId);
+            if (!channel || !channel.isTextBased()) {
+                errors.push({ channelId: bucket.channelId, slotTime: bucket.slotTime, error: 'Channel not text-based' });
+                continue;
+            }
+
+            for (const p of payloads) {
+                const uniqueUserIds = Array.from(new Set(p.userIds || []));
+                await channel.send({
+                    content: p.content,
+                    allowedMentions: { parse: [], users: uniqueUserIds }
+                });
+                sent += 1;
+            }
+        } catch (e) {
+            errors.push({ channelId: bucket.channelId, slotTime: bucket.slotTime, error: e.message });
+        }
+    }
+
+    return { attempted, sent, skippedMessageIds: uniqueSkipped, usedFallbackForMessageIds: uniqueFallback, errors };
+}
+
+app.get('/', (req, res) => {
+    res.redirect('/dashboard');
+});
+
+app.get('/__health', (req, res) => {
+    res.status(200).send('ok');
+});
 
 // Middleware
 app.set('view engine', 'ejs');
@@ -148,19 +292,31 @@ app.get('/dashboard', requireAuth, async (req, res) => {
             configsByGuild[c.guild_id].configs.push(c);
         }
 
-        // Group Signups by Message
-        const signupsByMessage = {};
+        const signupGroupsMap = {};
         for (const s of signups) {
-            const key = s.message_id;
-            if (!signupsByMessage[key]) {
-                signupsByMessage[key] = {
-                    id: key,
-                    day: messageMap.has(key) ? messageMap.get(key).day : 'Unknown Day',
+            const meta = messageMap.get(s.message_id);
+            const hasDay = meta && meta.day;
+            const groupKey = hasDay ? `${meta.guild_id || ''}::${meta.day}` : `msg::${s.message_id}`;
+            if (!signupGroupsMap[groupKey]) {
+                signupGroupsMap[groupKey] = {
+                    id: groupKey,
+                    day: hasDay ? meta.day : 'Unknown Day',
+                    guildId: hasDay ? (meta.guild_id || null) : null,
+                    messageIds: [],
                     signups: []
                 };
             }
-            signupsByMessage[key].signups.push(s);
+            if (!signupGroupsMap[groupKey].messageIds.includes(s.message_id)) {
+                signupGroupsMap[groupKey].messageIds.push(s.message_id);
+            }
+            signupGroupsMap[groupKey].signups.push(s);
         }
+
+        const signupGroups = Object.values(signupGroupsMap).sort((a, b) => {
+            const dayCmp = String(a.day).localeCompare(String(b.day));
+            if (dayCmp !== 0) return dayCmp;
+            return String(a.id).localeCompare(String(b.id));
+        });
 
         // Create a map of custom_name -> signup count from stats table
         const signupCounts = new Map();
@@ -181,11 +337,11 @@ app.get('/dashboard', requireAuth, async (req, res) => {
             stats: stats,
             gameStats: gameStats,
             configs: configsByGuild,
-            signups: signupsByMessage
+            signupGroups: signupGroups
         });
     } catch (err) {
         console.error("Dashboard error:", err);
-        res.render('dashboard', { user: 'Admin', stats: [], gameStats: [], configs: {}, signups: {} });
+        res.render('dashboard', { user: 'Admin', stats: [], gameStats: [], configs: {}, signupGroups: [] });
     }
 });
 
@@ -226,6 +382,54 @@ app.post('/api/sync-stats', requireAuth, (req, res) => {
     }
 });
 
+app.get('/manage-teams', requireAuth, async (req, res) => {
+    const messageIdsParam = typeof req.query.messageIds === 'string' ? req.query.messageIds : '';
+    const messageIds = messageIdsParam.split(',').map(s => s.trim()).filter(Boolean);
+    if (messageIds.length === 0) return res.redirect('/dashboard');
+
+    try {
+        const signups = db.getSignupsForMessages(messageIds);
+        const teamsRaw = db.getTeamsForMessages(messageIds);
+        const messageMetas = messageIds.map(id => db.getMessage(id)).filter(Boolean);
+        const days = Array.from(new Set(messageMetas.map(m => m.day).filter(Boolean)));
+
+        const teamsMap = {};
+        teamsRaw.forEach(t => {
+            teamsMap[`${t.message_id}_${t.user_id}_${t.slot_time}`] = t.team;
+        });
+
+        const slots = {};
+
+        const allStats = db.getAllStats();
+        const customNameMap = {};
+        allStats.forEach(stat => {
+            if (stat.custom_name) {
+                customNameMap[stat.user_id] = stat.custom_name;
+            }
+        });
+
+        for (const s of signups) {
+            s.username = await resolveUser(s.user_id);
+            s.customName = customNameMap[s.user_id] || null;
+
+            if (!slots[s.slot_time]) slots[s.slot_time] = [];
+            s.team = teamsMap[`${s.message_id}_${s.user_id}_${s.slot_time}`] || null;
+            slots[s.slot_time].push(s);
+        }
+
+        res.render('manage_teams', {
+            messageId: messageIds.join(','),
+            messageIds,
+            messageKey: messageIds.join(','),
+            day: days.length > 0 ? days.join(' / ') : 'Unknown',
+            slots: slots
+        });
+    } catch (e) {
+        console.error(e);
+        res.status(500).send('Error loading team management');
+    }
+});
+
 app.get('/manage-teams/:messageId', requireAuth, async (req, res) => {
     const { messageId } = req.params;
     try {
@@ -263,6 +467,8 @@ app.get('/manage-teams/:messageId', requireAuth, async (req, res) => {
 
         res.render('manage_teams', {
             messageId,
+            messageIds: [messageId],
+            messageKey: messageId,
             day: message ? message.day : 'Unknown',
             slots: slots
         });
@@ -282,10 +488,39 @@ app.post('/api/teams/update', requireAuth, (req, res) => {
     }
 });
 
+app.post('/api/remind-teams', requireAuth, async (req, res) => {
+    const bodyMessageIds = Array.isArray(req.body.messageIds) ? req.body.messageIds : null;
+    const messageIdsParam = typeof req.body.messageIds === 'string' ? req.body.messageIds : '';
+    const messageIds = (bodyMessageIds || messageIdsParam.split(',')).map(s => String(s).trim()).filter(Boolean);
+    const slotTime = typeof req.body.slotTime === 'string' ? req.body.slotTime.trim() : null;
+
+    if (messageIds.length === 0) return res.status(400).json({ error: 'Missing messageIds' });
+    if (!client.isReady()) return res.status(503).json({ error: 'Discord client not ready' });
+
+    try {
+        const result = await sendTeamRemindersToChannels({ messageIds, slotTime });
+        res.json({ success: true, ...result });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.post('/api/signup/delete', requireAuth, (req, res) => {
     const { messageId } = req.body;
     try {
         db.deleteMessage(messageId);
+        res.redirect('/dashboard');
+    } catch (e) {
+        console.error(e);
+        res.status(500).send('Error deleting signup');
+    }
+});
+
+app.post('/api/signup-group/delete', requireAuth, (req, res) => {
+    const messageIdsParam = typeof req.body.messageIds === 'string' ? req.body.messageIds : '';
+    const messageIds = messageIdsParam.split(',').map(s => s.trim()).filter(Boolean);
+    try {
+        db.deleteMessages(messageIds);
         res.redirect('/dashboard');
     } catch (e) {
         console.error(e);
@@ -304,6 +539,19 @@ app.post('/api/signup/rename', requireAuth, (req, res) => {
             // Create new entry for old posts without metadata
             db.saveMessage(messageId, '', '', dayName);
         }
+        res.redirect('/dashboard');
+    } catch (e) {
+        console.error(e);
+        res.status(500).send('Error renaming day');
+    }
+});
+
+app.post('/api/signup-group/rename', requireAuth, (req, res) => {
+    const messageIdsParam = typeof req.body.messageIds === 'string' ? req.body.messageIds : '';
+    const messageIds = messageIdsParam.split(',').map(s => s.trim()).filter(Boolean);
+    const dayName = req.body.dayName;
+    try {
+        db.updateMessageDays(messageIds, dayName);
         res.redirect('/dashboard');
     } catch (e) {
         console.error(e);

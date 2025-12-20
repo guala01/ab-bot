@@ -4,7 +4,14 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node ./index.js",
+    "dev": "node ./index.js",
+    "dashboard": "node ./dashboard.js",
+    "deploy-commands": "node ./deploy-commands.js",
+    "reset-stats": "node scripts/reset-stats.js",
+    "lint": "node -e \"console.log('No lint configured')\"",
+    "typecheck": "node -e \"console.log('No typecheck configured')\"",
+    "test": "node -e \"console.log('No tests specified')\""
   },
   "keywords": [],
   "author": "",

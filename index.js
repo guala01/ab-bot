@@ -6,9 +6,7 @@ const db = require('./db');
 
 const client = new Client({
     intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
+        GatewayIntentBits.Guilds
     ]
 });
 
@@ -37,6 +35,18 @@ client.once(Events.ClientReady, c => {
     console.log(`Ready! Logged in as ${c.user.tag}`);
 });
 
+const parseSignupCustomId = (customId) => {
+    const parts = customId.split('_');
+    if (parts[0] !== 'signup') return null;
+    if (parts.length >= 3) {
+        return { teamMode: parts[1], timeSlot: parts.slice(2).join('_') };
+    }
+    if (parts.length >= 2) {
+        return { teamMode: 'M', timeSlot: parts.slice(1).join('_') };
+    }
+    return null;
+};
+
 client.on(Events.InteractionCreate, async interaction => {
     if (interaction.isChatInputCommand()) {
         const command = interaction.client.commands.get(interaction.commandName);
@@ -60,7 +70,10 @@ client.on(Events.InteractionCreate, async interaction => {
         try {
             // Handle signup buttons
             if (interaction.customId.startsWith('signup_')) {
-                const timeSlot = interaction.customId.split('_')[1];
+                const parsed = parseSignupCustomId(interaction.customId);
+                if (!parsed) return;
+
+                const { teamMode, timeSlot } = parsed;
                 const messageId = interaction.message.id;
                 const userId = interaction.user.id;
                 const displayName = interaction.user.username;
@@ -74,9 +87,13 @@ client.on(Events.InteractionCreate, async interaction => {
 
                 if (isSignedUp) {
                     db.removeSignup(messageId, userId, timeSlot);
+                    db.removeTeam(messageId, userId, timeSlot);
                     db.decrementStat(userId, interaction.guildId);
                 } else {
                     db.addSignup(messageId, userId, timeSlot, displayName);
+                    if (teamMode === 'A' || teamMode === 'B') {
+                        db.setTeam(messageId, userId, timeSlot, teamMode);
+                    }
                     // Increment stats on signup (simple approach, or could be done when event closes)
                     db.incrementStat(userId, interaction.guildId);
                 }
@@ -87,10 +104,14 @@ client.on(Events.InteractionCreate, async interaction => {
                 // Reconstruct the embed fields
                 const rows = interaction.message.components;
                 let allSlots = [];
+                let embedTeamMode = null;
                 rows.forEach(row => {
                     row.components.forEach(component => {
                         if (component.customId && component.customId.startsWith('signup_')) {
-                            allSlots.push(component.customId.split('_')[1]);
+                            const p = parseSignupCustomId(component.customId);
+                            if (!p) return;
+                            if (!embedTeamMode) embedTeamMode = p.teamMode;
+                            allSlots.push(p.timeSlot);
                         }
                     });
                 });
@@ -108,10 +129,11 @@ client.on(Events.InteractionCreate, async interaction => {
                 newEmbed.setFields([]); // Clear existing fields
 
                 // Add fields for each slot
+                const fieldPrefix = embedTeamMode === 'B' ? '🟩 Team B •' : embedTeamMode === 'A' ? '🟥 Team A •' : '🫄🏿';
                 for (const slot of allSlots) {
                     const users = signupsBySlot[slot] || [];
                     const value = users.length > 0 ? users.join(', ') : '-';
-                    newEmbed.addFields({ name: `🫄🏿 ${slot} (${users.length})`, value: value, inline: true });
+                    newEmbed.addFields({ name: `${fieldPrefix} ${slot} (${users.length})`, value: value, inline: true });
                 }
 
                 await interaction.editReply({ embeds: [newEmbed] });

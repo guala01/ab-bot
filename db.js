@@ -142,6 +142,16 @@ module.exports = {
   getAllSignups: () => {
     return db.prepare('SELECT * FROM signups ORDER BY message_id, slot_time ASC').all();
   },
+  getSignupsForMessages: (messageIds) => {
+    if (!Array.isArray(messageIds) || messageIds.length === 0) return [];
+    const placeholders = messageIds.map(() => '?').join(',');
+    return db.prepare(`SELECT * FROM signups WHERE message_id IN (${placeholders}) ORDER BY message_id, slot_time ASC`).all(...messageIds);
+  },
+  getTeamsForMessages: (messageIds) => {
+    if (!Array.isArray(messageIds) || messageIds.length === 0) return [];
+    const placeholders = messageIds.map(() => '?').join(',');
+    return db.prepare(`SELECT * FROM teams_v2 WHERE message_id IN (${placeholders})`).all(...messageIds);
+  },
   updateGameStats: (stats) => {
     const insert = db.prepare("INSERT OR REPLACE INTO game_stats (character_name, games_played, last_updated) VALUES (@name, @count, datetime('now'))");
     const deleteOld = db.prepare('DELETE FROM game_stats');
@@ -190,6 +200,9 @@ module.exports = {
   setTeam: (messageId, userId, slotTime, team) => {
     return db.prepare('INSERT OR REPLACE INTO teams_v2 (message_id, user_id, slot_time, team) VALUES (?, ?, ?, ?)').run(messageId, userId, slotTime, team);
   },
+  removeTeam: (messageId, userId, slotTime) => {
+    return db.prepare('DELETE FROM teams_v2 WHERE message_id = ? AND user_id = ? AND slot_time = ?').run(messageId, userId, slotTime);
+  },
   getTeams: (messageId) => {
     return db.prepare('SELECT * FROM teams_v2 WHERE message_id = ?').all(messageId);
   },
@@ -198,7 +211,19 @@ module.exports = {
     db.prepare('DELETE FROM teams_v2 WHERE message_id = ?').run(messageId);
     db.prepare('DELETE FROM messages WHERE message_id = ?').run(messageId);
   },
+  deleteMessages: (messageIds) => {
+    if (!Array.isArray(messageIds) || messageIds.length === 0) return;
+    const placeholders = messageIds.map(() => '?').join(',');
+    db.prepare(`DELETE FROM signups WHERE message_id IN (${placeholders})`).run(...messageIds);
+    db.prepare(`DELETE FROM teams_v2 WHERE message_id IN (${placeholders})`).run(...messageIds);
+    db.prepare(`DELETE FROM messages WHERE message_id IN (${placeholders})`).run(...messageIds);
+  },
   updateMessageDay: (messageId, day) => {
     return db.prepare('UPDATE messages SET day = ? WHERE message_id = ?').run(day, messageId);
+  },
+  updateMessageDays: (messageIds, day) => {
+    if (!Array.isArray(messageIds) || messageIds.length === 0) return;
+    const placeholders = messageIds.map(() => '?').join(',');
+    return db.prepare(`UPDATE messages SET day = ? WHERE message_id IN (${placeholders})`).run(day, ...messageIds);
   }
 };
