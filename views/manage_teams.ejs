@@ -393,7 +393,9 @@
                     data.details.forEach(d => {
                         if (!d) return;
                         const bFlag = d.pingedB ? 'pinged' : 'not pinged';
-                        lines.push(`${d.slotTime} — A:${d.teamA} B:${d.teamB} (B ${bFlag}) — sent ${d.sentMessages || 0}/${d.plannedMessages || 0}`);
+                        const aInfo = `A sent ${d.sentMessagesA || 0}/${d.plannedMessagesA || 0}`;
+                        const bInfo = `B sent ${d.sentMessagesB || 0}/${d.plannedMessagesB || 0}`;
+                        lines.push(`${d.slotTime} — A:${d.teamA} B:${d.teamB} (B ${bFlag}) — ${aInfo}, ${bInfo}`);
                     });
                 }
                 if (Array.isArray(data.skippedMessageIds) && data.skippedMessageIds.length > 0) {

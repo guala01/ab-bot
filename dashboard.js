@@ -92,6 +92,44 @@ function chunkMentions(prefix, userIds, maxLen) {
     return chunks;
 }
 
+function parseSignupCustomId(customId) {
+    const parts = String(customId || '').split('_');
+    if (parts[0] !== 'signup') return null;
+    if (parts.length >= 3) return { teamMode: parts[1], timeSlot: parts.slice(2).join('_') };
+    if (parts.length >= 2) return { teamMode: 'M', timeSlot: parts.slice(1).join('_') };
+    return null;
+}
+
+function inferTeamModeFromDiscordMessage(message) {
+    const rows = message && message.components ? message.components : [];
+    for (const row of rows) {
+        const comps = row && row.components ? row.components : [];
+        for (const c of comps) {
+            if (!c || !c.customId) continue;
+            if (!String(c.customId).startsWith('signup_')) continue;
+            const parsed = parseSignupCustomId(c.customId);
+            if (parsed && (parsed.teamMode === 'A' || parsed.teamMode === 'B')) return parsed.teamMode;
+        }
+    }
+
+    const title = message && message.embeds && message.embeds[0] && message.embeds[0].title ? String(message.embeds[0].title) : '';
+    if (/team\s*a/i.test(title)) return 'A';
+    if (/team\s*b/i.test(title)) return 'B';
+    return null;
+}
+
+async function getSignupTeamModeForMessage(meta) {
+    if (!meta || !meta.channel_id || !meta.message_id) return null;
+    try {
+        const channel = await client.channels.fetch(meta.channel_id);
+        if (!channel || !channel.isTextBased()) return null;
+        const message = await channel.messages.fetch(meta.message_id);
+        return inferTeamModeFromDiscordMessage(message);
+    } catch {
+        return null;
+    }
+}
+
 async function sendTeamRemindersToChannels({ messageIds, slotTime }) {
     const signups = db.getSignupsForMessages(messageIds);
     const teamsRaw = db.getTeamsForMessages(messageIds);
@@ -100,7 +138,7 @@ async function sendTeamRemindersToChannels({ messageIds, slotTime }) {
     const metaByMessageId = new Map();
     for (const m of messageMetas) metaByMessageId.set(m.message_id, m);
     const fallbackMeta = messageMetas.find(m => m && m.channel_id && m.guild_id) || null;
-    const targetChannelId = fallbackMeta ? fallbackMeta.channel_id : null;
+    const fallbackChannelId = fallbackMeta ? fallbackMeta.channel_id : null;
 
     const teamsMap = {};
     teamsRaw.forEach(t => {
@@ -110,6 +148,27 @@ async function sendTeamRemindersToChannels({ messageIds, slotTime }) {
     const buckets = new Map();
     const skippedMessageIds = [];
     const usedFallbackForMessageIds = [];
+
+    const teamModeByMessageId = new Map();
+    const metasWithChannel = messageMetas.filter(m => m && m.channel_id && m.guild_id);
+    for (const meta of metasWithChannel) {
+        const mode = await getSignupTeamModeForMessage(meta);
+        if (mode) teamModeByMessageId.set(meta.message_id, mode);
+    }
+
+    const teamAMeta = metasWithChannel.find(m => teamModeByMessageId.get(m.message_id) === 'A') || null;
+    const teamBMeta = metasWithChannel.find(m => teamModeByMessageId.get(m.message_id) === 'B') || null;
+    const teamAChannelId = (teamAMeta && teamAMeta.channel_id) || fallbackChannelId || null;
+    const teamBChannelId = (teamBMeta && teamBMeta.channel_id) || fallbackChannelId || null;
+
+    const teamALinks = [];
+    const teamBLinks = [];
+    metasWithChannel.forEach(m => {
+        const mode = teamModeByMessageId.get(m.message_id);
+        const link = `https://discord.com/channels/${m.guild_id}/${m.channel_id}/${m.message_id}`;
+        if (mode === 'A') teamALinks.push(link);
+        if (mode === 'B') teamBLinks.push(link);
+    });
 
     for (const s of signups) {
         if (slotTime && s.slot_time !== slotTime) continue;
@@ -130,17 +189,14 @@ async function sendTeamRemindersToChannels({ messageIds, slotTime }) {
         const bucketKey = s.slot_time;
         if (!buckets.has(bucketKey)) {
             buckets.set(bucketKey, {
-                guildId: meta.guild_id,
                 day: meta.day || null,
                 slotTime: s.slot_time,
-                messageLinks: new Set(),
                 teamA: new Set(),
                 teamB: new Set()
             });
         }
 
         const bucket = buckets.get(bucketKey);
-        bucket.messageLinks.add(`https://discord.com/channels/${meta.guild_id}/${meta.channel_id}/${s.message_id}`);
         if (team === 'A') bucket.teamA.add(s.user_id);
         if (team === 'B') bucket.teamB.add(s.user_id);
     }
@@ -153,7 +209,7 @@ async function sendTeamRemindersToChannels({ messageIds, slotTime }) {
     const errors = [];
     const details = [];
 
-    if (!targetChannelId) {
+    if (!teamAChannelId && !teamBChannelId) {
         return {
             attempted,
             sent,
@@ -172,88 +228,79 @@ async function sendTeamRemindersToChannels({ messageIds, slotTime }) {
         attempted += 1;
 
         const dayPart = bucket.day ? `${bucket.day} ` : '';
-        const shouldPingTeamB = teamBIds.length >= 8;
         const shouldPingTeamA = teamAIds.length > 0;
+        const shouldPingTeamB = teamBIds.length >= 8;
         if (!shouldPingTeamA && !shouldPingTeamB) continue;
 
-        const header = shouldPingTeamB
-            ? `Hey! Team A and Team B — ${dayPart}${bucket.slotTime} match is about to start.`
-            : `Hey! Team A — ${dayPart}${bucket.slotTime} match is about to start.`;
-        const links = Array.from(bucket.messageLinks).slice(0, 3);
-        const linksPart = links.length > 0 ? `\n${links.join('\n')}` : '';
-
-        const payloads = [];
-
-        const aChunks = shouldPingTeamA ? chunkMentions(`Team A (${teamAIds.length}):`, teamAIds, 1900) : [];
-        const bChunks = shouldPingTeamB ? chunkMentions(`Team B (${teamBIds.length}):`, teamBIds, 1900) : [];
-
-        if (!shouldPingTeamB) {
-            const bLine = `Team B (${teamBIds.length}): not pinged (need 8+)`;
-            if (aChunks.length > 0) {
-                const aPayloads = aChunks.map((chunk, idx) => ({
-                    content: `${header}\n${chunk}${idx === 0 ? `\n${bLine}${linksPart}` : ''}`,
-                    userIds: teamAIds
-                }));
-                payloads.push(...aPayloads);
-            } else {
-                payloads.push({
-                    content: `${header}\n${bLine}${linksPart}`,
-                    userIds: []
-                });
-            }
-        } else {
-            if (aChunks.length === 1 && bChunks.length === 1) {
-                const content = `${header}\n${aChunks[0]}\n${bChunks[0]}${linksPart}`;
-                if (content.length <= 2000) {
-                    payloads.push({ content, userIds: [...teamAIds, ...teamBIds] });
-                }
-            }
-
-            if (payloads.length === 0) {
-                const aPayloads = aChunks.map((chunk, idx) => ({
-                    content: `${header}\n${chunk}${idx === 0 ? linksPart : ''}`,
-                    userIds: teamAIds
-                }));
-                const bPayloads = bChunks.map((chunk, idx) => ({
-                    content: `${header}\n${chunk}${idx === 0 && aPayloads.length === 0 ? linksPart : ''}`,
-                    userIds: teamBIds
-                }));
-                payloads.push(...aPayloads, ...bPayloads);
-            }
-        }
-
         const detail = {
-            channelId: targetChannelId,
             slotTime: bucket.slotTime,
             teamA: teamAIds.length,
             teamB: teamBIds.length,
             pingedB: shouldPingTeamB,
-            plannedMessages: payloads.length,
-            sentMessages: 0
+            channelAId: teamAChannelId,
+            channelBId: teamBChannelId,
+            plannedMessagesA: 0,
+            plannedMessagesB: 0,
+            sentMessagesA: 0,
+            sentMessagesB: 0
         };
 
-        try {
-            const channel = await client.channels.fetch(targetChannelId);
-            if (!channel || !channel.isTextBased()) {
-                errors.push({ channelId: targetChannelId, slotTime: bucket.slotTime, error: 'Channel not text-based' });
-                details.push(detail);
-                continue;
-            }
+        if (shouldPingTeamA && teamAChannelId) {
+            const headerA = `Hey! Team A — ${dayPart}${bucket.slotTime} match is about to start.`;
+            const bInfo = shouldPingTeamB ? `Team B (${teamBIds.length})` : `Team B (${teamBIds.length}): not pinged (need 8+)`;
+            const linksPartA = teamALinks.length > 0 ? `\n${teamALinks.slice(0, 3).join('\n')}` : '';
+            const aChunks = chunkMentions(`Team A (${teamAIds.length}):`, teamAIds, 1900);
+            const payloadsA = aChunks.map((chunk, idx) => ({
+                content: `${headerA}\n${chunk}${idx === 0 ? `\n${bInfo}${linksPartA}` : ''}`,
+                userIds: teamAIds
+            }));
+            detail.plannedMessagesA = payloadsA.length;
 
-            for (const p of payloads) {
-                const uniqueUserIds = Array.from(new Set(p.userIds || []));
-                await channel.send({
-                    content: p.content,
-                    allowedMentions: { parse: [], users: uniqueUserIds }
-                });
-                sent += 1;
-                detail.sentMessages += 1;
+            try {
+                const channelA = await client.channels.fetch(teamAChannelId);
+                if (channelA && channelA.isTextBased()) {
+                    for (const p of payloadsA) {
+                        const uniqueUserIds = Array.from(new Set(p.userIds || []));
+                        await channelA.send({ content: p.content, allowedMentions: { parse: [], users: uniqueUserIds } });
+                        sent += 1;
+                        detail.sentMessagesA += 1;
+                    }
+                } else {
+                    errors.push({ channelId: teamAChannelId, slotTime: bucket.slotTime, error: 'Team A channel not text-based' });
+                }
+            } catch (e) {
+                errors.push({ channelId: teamAChannelId, slotTime: bucket.slotTime, error: e.message });
             }
-            details.push(detail);
-        } catch (e) {
-            errors.push({ channelId: targetChannelId, slotTime: bucket.slotTime, error: e.message });
-            details.push(detail);
         }
+
+        if (shouldPingTeamB && teamBChannelId) {
+            const headerB = `Hey! Team B — ${dayPart}${bucket.slotTime} match is about to start.`;
+            const linksPartB = teamBLinks.length > 0 ? `\n${teamBLinks.slice(0, 3).join('\n')}` : '';
+            const bChunks = chunkMentions(`Team B (${teamBIds.length}):`, teamBIds, 1900);
+            const payloadsB = bChunks.map((chunk, idx) => ({
+                content: `${headerB}\n${chunk}${idx === 0 ? linksPartB : ''}`,
+                userIds: teamBIds
+            }));
+            detail.plannedMessagesB = payloadsB.length;
+
+            try {
+                const channelB = await client.channels.fetch(teamBChannelId);
+                if (channelB && channelB.isTextBased()) {
+                    for (const p of payloadsB) {
+                        const uniqueUserIds = Array.from(new Set(p.userIds || []));
+                        await channelB.send({ content: p.content, allowedMentions: { parse: [], users: uniqueUserIds } });
+                        sent += 1;
+                        detail.sentMessagesB += 1;
+                    }
+                } else {
+                    errors.push({ channelId: teamBChannelId, slotTime: bucket.slotTime, error: 'Team B channel not text-based' });
+                }
+            } catch (e) {
+                errors.push({ channelId: teamBChannelId, slotTime: bucket.slotTime, error: e.message });
+            }
+        }
+
+        details.push(detail);
     }
 
     return { attempted, sent, skippedMessageIds: uniqueSkipped, usedFallbackForMessageIds: uniqueFallback, errors, details };
