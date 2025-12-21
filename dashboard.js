@@ -165,27 +165,38 @@ async function sendTeamRemindersToChannels({ messageIds, slotTime }) {
         const links = Array.from(bucket.messageLinks).slice(0, 3);
         const linksPart = links.length > 0 ? `\n${links.join('\n')}` : '';
 
-        const aChunks = chunkMentions(`Team A (${teamAIds.length}):`, teamAIds, 1900);
-        const bChunks = chunkMentions(`Team B (${teamBIds.length}):`, teamBIds, 1900);
-
+        const shouldPingTeamB = teamBIds.length >= 8;
         const payloads = [];
-        if (aChunks.length === 1 && bChunks.length === 1) {
-            const content = `${header}\n${aChunks[0]}\n${bChunks[0]}${linksPart}`;
-            if (content.length <= 2000) {
-                payloads.push({ content, userIds: [...teamAIds, ...teamBIds] });
-            }
-        }
 
-        if (payloads.length === 0) {
+        const aChunks = chunkMentions(`Team A (${teamAIds.length}):`, teamAIds, 1900);
+        const bChunks = shouldPingTeamB ? chunkMentions(`Team B (${teamBIds.length}):`, teamBIds, 1900) : [];
+
+        if (!shouldPingTeamB) {
+            const bLine = `Team B (${teamBIds.length}): not pinged (need 8+)`;
             const aPayloads = aChunks.map((chunk, idx) => ({
-                content: `${header}\n${chunk}${idx === 0 ? linksPart : ''}`,
+                content: `${header}\n${chunk}${idx === 0 ? `\n${bLine}${linksPart}` : ''}`,
                 userIds: teamAIds
             }));
-            const bPayloads = bChunks.map((chunk, idx) => ({
-                content: `${header}\n${chunk}${idx === 0 && aPayloads.length === 0 ? linksPart : ''}`,
-                userIds: teamBIds
-            }));
-            payloads.push(...aPayloads, ...bPayloads);
+            payloads.push(...aPayloads);
+        } else {
+            if (aChunks.length === 1 && bChunks.length === 1) {
+                const content = `${header}\n${aChunks[0]}\n${bChunks[0]}${linksPart}`;
+                if (content.length <= 2000) {
+                    payloads.push({ content, userIds: [...teamAIds, ...teamBIds] });
+                }
+            }
+
+            if (payloads.length === 0) {
+                const aPayloads = aChunks.map((chunk, idx) => ({
+                    content: `${header}\n${chunk}${idx === 0 ? linksPart : ''}`,
+                    userIds: teamAIds
+                }));
+                const bPayloads = bChunks.map((chunk, idx) => ({
+                    content: `${header}\n${chunk}${idx === 0 && aPayloads.length === 0 ? linksPart : ''}`,
+                    userIds: teamBIds
+                }));
+                payloads.push(...aPayloads, ...bPayloads);
+            }
         }
 
         try {
