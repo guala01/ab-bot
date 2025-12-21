@@ -151,6 +151,7 @@ async function sendTeamRemindersToChannels({ messageIds, slotTime }) {
     let attempted = 0;
     let sent = 0;
     const errors = [];
+    const details = [];
 
     for (const bucket of buckets.values()) {
         const teamAIds = Array.from(bucket.teamA);
@@ -199,10 +200,21 @@ async function sendTeamRemindersToChannels({ messageIds, slotTime }) {
             }
         }
 
+        const detail = {
+            channelId: bucket.channelId,
+            slotTime: bucket.slotTime,
+            teamA: teamAIds.length,
+            teamB: teamBIds.length,
+            pingedB: shouldPingTeamB,
+            plannedMessages: payloads.length,
+            sentMessages: 0
+        };
+
         try {
             const channel = await client.channels.fetch(bucket.channelId);
             if (!channel || !channel.isTextBased()) {
                 errors.push({ channelId: bucket.channelId, slotTime: bucket.slotTime, error: 'Channel not text-based' });
+                details.push(detail);
                 continue;
             }
 
@@ -213,13 +225,16 @@ async function sendTeamRemindersToChannels({ messageIds, slotTime }) {
                     allowedMentions: { parse: [], users: uniqueUserIds }
                 });
                 sent += 1;
+                detail.sentMessages += 1;
             }
+            details.push(detail);
         } catch (e) {
             errors.push({ channelId: bucket.channelId, slotTime: bucket.slotTime, error: e.message });
+            details.push(detail);
         }
     }
 
-    return { attempted, sent, skippedMessageIds: uniqueSkipped, usedFallbackForMessageIds: uniqueFallback, errors };
+    return { attempted, sent, skippedMessageIds: uniqueSkipped, usedFallbackForMessageIds: uniqueFallback, errors, details };
 }
 
 app.get('/', (req, res) => {

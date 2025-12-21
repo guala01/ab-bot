@@ -389,6 +389,13 @@
                 const lines = [];
                 lines.push(`Sent ${data.sent || 0} message(s).`);
                 if (typeof data.attempted === 'number') lines.push(`Matches processed: ${data.attempted}`);
+                if (Array.isArray(data.details) && data.details.length > 0) {
+                    data.details.forEach(d => {
+                        if (!d) return;
+                        const bFlag = d.pingedB ? 'pinged' : 'not pinged';
+                        lines.push(`${d.slotTime} — A:${d.teamA} B:${d.teamB} (B ${bFlag}) — sent ${d.sentMessages || 0}/${d.plannedMessages || 0}`);
+                    });
+                }
                 if (Array.isArray(data.skippedMessageIds) && data.skippedMessageIds.length > 0) {
                     lines.push(`Skipped message IDs (missing metadata): ${data.skippedMessageIds.join(', ')}`);
                 }
