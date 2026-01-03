@@ -11,10 +11,15 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.DASHBOARD_PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
+const TEAM_A_VOICE_ID = '1002272934078992446';
+const TEAM_B_VOICE_ID = '1354148290731577417';
 
 // Initialize Discord Client
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildVoiceStates
+    ]
 });
 
 // Cache for names to avoid rate limits
@@ -33,7 +38,7 @@ function parseLogFile(filePath) {
                 const guildType = parts[1];
                 if (guildType === 'MY_GUILD') {
                     const name = parts[2];
-                    
+
                     if (!playerStats.has(name)) {
                         playerStats.set(name, { name, count: 0 });
                     }
@@ -41,7 +46,7 @@ function parseLogFile(filePath) {
                 }
             }
         }
-        
+
         return Array.from(playerStats.values());
     } catch (e) {
         console.error('Error parsing log file:', e);
@@ -130,7 +135,7 @@ async function getSignupTeamModeForMessage(meta) {
     }
 }
 
-async function sendTeamRemindersToChannels({ messageIds, slotTime }) {
+async function sendTeamRemindersToChannels({ messageIds, slotTime, checkOnly = false }) {
     const signups = db.getSignupsForMessages(messageIds);
     const teamsRaw = db.getTeamsForMessages(messageIds);
     const messageMetas = messageIds.map(id => db.getMessage(id)).filter(Boolean);
@@ -232,6 +237,57 @@ async function sendTeamRemindersToChannels({ messageIds, slotTime }) {
         const shouldPingTeamB = teamBIds.length >= 8;
         if (!shouldPingTeamA && !shouldPingTeamB) continue;
 
+        if (checkOnly) {
+            const missingVoiceUsers = [];
+            // Use the guild from the available channel metadata
+            const anyMeta = metasWithChannel.find(m => m.guild_id) || messageMetas.find(m => m.guild_id);
+            const guildId = anyMeta ? anyMeta.guild_id : null;
+
+            if (guildId) {
+                try {
+                    const guild = await client.guilds.fetch(guildId);
+
+                    // Check Team A
+                    for (const userId of teamAIds) {
+                        try {
+                            const member = await guild.members.fetch(userId);
+                            if (member.voice.channelId !== TEAM_A_VOICE_ID) {
+                                missingVoiceUsers.push({ userId, name: member.displayName, team: 'A' });
+                            }
+                        } catch (e) {
+                            missingVoiceUsers.push({ userId, name: 'Unknown User', team: 'A' });
+                        }
+                    }
+
+                    // Check Team B
+                    for (const userId of teamBIds) {
+                        try {
+                            const member = await guild.members.fetch(userId);
+                            if (member.voice.channelId !== TEAM_B_VOICE_ID) {
+                                missingVoiceUsers.push({ userId, name: member.displayName, team: 'B' });
+                            }
+                        } catch (e) {
+                            missingVoiceUsers.push({ userId, name: 'Unknown User', team: 'B' });
+                        }
+                    }
+                } catch (e) {
+                    console.error("Failed to fetch guild for voice check", e);
+                }
+            }
+
+            if (missingVoiceUsers.length > 0) {
+                return { checkOnly: true, missingUsers: missingVoiceUsers };
+            } else {
+                // If no missing users, return success for this check (but loop continues? No, usually checkOnly is per request.
+                // If we have multiple buckets, we should accumulate or just return checking passed. 
+                // For now, let's assume we want to check ALL buckets.
+                // Actually, if we are here and passed, we continue to next bucket?
+                // But wait, the function returns an object.
+                // If checkOnly is true, we don't want to actually send messages.
+                continue;
+            }
+        }
+
         const detail = {
             slotTime: bucket.slotTime,
             teamA: teamAIds.length,
@@ -303,6 +359,17 @@ async function sendTeamRemindersToChannels({ messageIds, slotTime }) {
         details.push(detail);
     }
 
+    if (checkOnly) {
+        // If we reached here in checkOnly mode, it means no missing users were returned early (or we should have collected them).
+        // My previous logic was: "if missing, return".
+        // If we have multiple buckets, we might miss some if we return early.
+        // But collecting them is safer. 
+        // Let's refine the checkOnly logic in the loop:
+        // Actually, the loop above returns immediately if missing users found.
+        // So if we exit the loop, it means ALL buckets passed the check.
+        return { checkOnly: true, missingUsers: [] };
+    }
+
     return { attempted, sent, skippedMessageIds: uniqueSkipped, usedFallbackForMessageIds: uniqueFallback, errors, details };
 }
 
@@ -359,7 +426,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
         // Map message metadata
         const messageMap = new Map();
         messages.forEach(m => messageMap.set(m.message_id, m));
-        
+
         // Fetch Game Stats
         const gameStats = db.getGameStats();
         const gameStatsMap = new Map();
@@ -371,12 +438,12 @@ app.get('/dashboard', requireAuth, async (req, res) => {
         const enrichmentPromises = stats.map(async s => {
             s.username = await resolveUser(s.user_id);
             s.guildName = await resolveGuild(s.guild_id);
-            
+
             // Match with game stats using custom_name (priority) or username
             const lookupName = s.custom_name || s.username; // Note: Log file usually has character names, so custom_name is key
             s.games_played = gameStatsMap.get(lookupName) || 0;
         });
-        
+
         await Promise.all(enrichmentPromises);
 
         // Group configs by guild
@@ -442,11 +509,11 @@ app.get('/dashboard', requireAuth, async (req, res) => {
 
 app.post('/update-game-stats', requireAuth, (req, res) => {
     const filePath = path.join(__dirname, 'bdo_guild_match_log.txt');
-    
+
     if (!fs.existsSync(filePath)) {
         return res.redirect('/dashboard?error=Log file not found in root directory');
     }
-    
+
     const stats = parseLogFile(filePath);
     if (stats.length > 0) {
         db.updateGameStats(stats);
@@ -588,12 +655,13 @@ app.post('/api/remind-teams', requireAuth, async (req, res) => {
     const messageIdsParam = typeof req.body.messageIds === 'string' ? req.body.messageIds : '';
     const messageIds = (bodyMessageIds || messageIdsParam.split(',')).map(s => String(s).trim()).filter(Boolean);
     const slotTime = typeof req.body.slotTime === 'string' ? req.body.slotTime.trim() : null;
+    const checkOnly = !!req.body.checkOnly;
 
     if (messageIds.length === 0) return res.status(400).json({ error: 'Missing messageIds' });
     if (!client.isReady()) return res.status(503).json({ error: 'Discord client not ready' });
 
     try {
-        const result = await sendTeamRemindersToChannels({ messageIds, slotTime });
+        const result = await sendTeamRemindersToChannels({ messageIds, slotTime, checkOnly });
         res.json({ success: true, ...result });
     } catch (e) {
         res.status(500).json({ error: e.message });

@@ -242,7 +242,8 @@
                                     <div class="slot-title" onclick="toggleSlot('<%= time.replace(':', '-') %>')">
                                         <span class="arrow">▶</span>
                                         🕐 <%= time %> <span style="opacity:0.7;">(<%= total %>)</span>
-                                        <button class="remind-btn" onclick="event.stopPropagation(); sendTeamReminders('<%= time %>')">Remind</button>
+                                            <button class="remind-btn"
+                                                onclick="event.stopPropagation(); sendTeamReminders('<%= time %>')">Remind</button>
                                     </div>
                                     <div class="teams-container">
                                         <!-- Unassigned -->
@@ -260,7 +261,7 @@
                                                                 <%= s.username %>
                                                             </div>
                                                         </div>
-                                                            <div class="actions">
+                                                        <div class="actions">
                                                             <button class="btn-a"
                                                                 onclick="setTeam('<%= s.message_id %>', '<%= s.user_id %>', '<%= time %>', 'A')">A</button>
                                                             <button class="btn-b"
@@ -322,7 +323,7 @@
     </div>
 
     <script>
-        const messageIds = <%- JSON.stringify(messageIds || []) %>;
+        const messageIds = <% - JSON.stringify(messageIds || []) %>;
         const messageKey = '<%= messageKey %>';
 
         // Restore expanded slots from sessionStorage
@@ -376,10 +377,25 @@
             const ok = confirm(`Send reminder pings for ${slotTime}?`);
             if (!ok) return;
             try {
+                // Step 1: Check voice presence
+                const checkRes = await fetch('/api/remind-teams', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messageIds, slotTime, checkOnly: true })
+                });
+                const checkData = await checkRes.json().catch(() => null);
+
+                if (checkData && checkData.checkOnly && Array.isArray(checkData.missingUsers) && checkData.missingUsers.length > 0) {
+                    const names = checkData.missingUsers.map(u => `- ${u.name} (Team ${u.team})`).join('\n');
+                    const proceed = confirm(`The following players are not in the correct voice channel:\n${names}\n\nDo you want to ping anyway?`);
+                    if (!proceed) return;
+                }
+
+                // Step 2: Send actual pings
                 const res = await fetch('/api/remind-teams', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ messageIds, slotTime })
+                    body: JSON.stringify({ messageIds, slotTime, checkOnly: false })
                 });
                 const data = await res.json().catch(() => null);
                 if (!res.ok) {
