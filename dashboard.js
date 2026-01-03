@@ -237,53 +237,41 @@ async function sendTeamRemindersToChannels({ messageIds, slotTime, checkOnly = f
         const shouldPingTeamB = teamBIds.length >= 8;
         if (!shouldPingTeamA && !shouldPingTeamB) continue;
 
-        if (checkOnly) {
-            const missingVoiceUsers = [];
-            // Use the guild from the available channel metadata
-            const anyMeta = metasWithChannel.find(m => m.guild_id) || messageMetas.find(m => m.guild_id);
-            const guildId = anyMeta ? anyMeta.guild_id : null;
+        // Unconditional voice check (runs for both checkOnly and real pings)
+        const missingVoiceUsers = [];
+        const anyMeta = metasWithChannel.find(m => m.guild_id) || messageMetas.find(m => m.guild_id);
+        const guildId = anyMeta ? anyMeta.guild_id : null;
 
-            if (guildId) {
-                try {
-                    const guild = await client.guilds.fetch(guildId);
-
-                    // Check Team A
-                    for (const userId of teamAIds) {
+        if (guildId) {
+            try {
+                const guild = await client.guilds.fetch(guildId);
+                const checkIds = (ids, teamName, channelId) => {
+                    return Promise.all(ids.map(async userId => {
                         try {
                             const member = await guild.members.fetch(userId);
-                            if (member.voice.channelId !== TEAM_A_VOICE_ID) {
-                                missingVoiceUsers.push({ userId, name: member.displayName, team: 'A' });
+                            if (member.voice.channelId !== channelId) {
+                                missingVoiceUsers.push({ userId, name: member.displayName, team: teamName });
                             }
                         } catch (e) {
-                            missingVoiceUsers.push({ userId, name: 'Unknown User', team: 'A' });
+                            missingVoiceUsers.push({ userId, name: 'Unknown User', team: teamName });
                         }
-                    }
+                    }));
+                };
 
-                    // Check Team B
-                    for (const userId of teamBIds) {
-                        try {
-                            const member = await guild.members.fetch(userId);
-                            if (member.voice.channelId !== TEAM_B_VOICE_ID) {
-                                missingVoiceUsers.push({ userId, name: member.displayName, team: 'B' });
-                            }
-                        } catch (e) {
-                            missingVoiceUsers.push({ userId, name: 'Unknown User', team: 'B' });
-                        }
-                    }
-                } catch (e) {
-                    console.error("Failed to fetch guild for voice check", e);
-                }
+                await Promise.all([
+                    checkIds(teamAIds, 'A', TEAM_A_VOICE_ID),
+                    checkIds(teamBIds, 'B', TEAM_B_VOICE_ID)
+                ]);
+
+            } catch (e) {
+                console.error("Failed to fetch guild for voice check", e);
             }
+        }
 
+        if (checkOnly) {
             if (missingVoiceUsers.length > 0) {
                 return { checkOnly: true, missingUsers: missingVoiceUsers };
             } else {
-                // If no missing users, return success for this check (but loop continues? No, usually checkOnly is per request.
-                // If we have multiple buckets, we should accumulate or just return checking passed. 
-                // For now, let's assume we want to check ALL buckets.
-                // Actually, if we are here and passed, we continue to next bucket?
-                // But wait, the function returns an object.
-                // If checkOnly is true, we don't want to actually send messages.
                 continue;
             }
         }
@@ -298,7 +286,9 @@ async function sendTeamRemindersToChannels({ messageIds, slotTime, checkOnly = f
             plannedMessagesA: 0,
             plannedMessagesB: 0,
             sentMessagesA: 0,
-            sentMessagesB: 0
+            sentMessagesA: 0,
+            sentMessagesB: 0,
+            missingUsers: missingVoiceUsers // Include missing users in the detail for this bucket
         };
 
         if (shouldPingTeamA && teamAChannelId) {

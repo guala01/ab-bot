@@ -323,7 +323,6 @@
     </div>
 
     <script>
-
         const messageIds = JSON.parse(decodeURIComponent('<%= encodeURIComponent(JSON.stringify(messageIds || [])) %>'));
         const messageKey = '<%= messageKey %>';
 
@@ -378,21 +377,7 @@
             const ok = confirm(`Send reminder pings for ${slotTime}?`);
             if (!ok) return;
             try {
-                // Step 1: Check voice presence
-                const checkRes = await fetch('/api/remind-teams', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ messageIds, slotTime, checkOnly: true })
-                });
-                const checkData = await checkRes.json().catch(() => null);
-
-                if (checkData && checkData.checkOnly && Array.isArray(checkData.missingUsers) && checkData.missingUsers.length > 0) {
-                    const names = checkData.missingUsers.map(u => `- ${u.name} (Team ${u.team})`).join('\n');
-                    const proceed = confirm(`The following players are not in the correct voice channel:\n${names}\n\nDo you want to ping anyway?`);
-                    if (!proceed) return;
-                }
-
-                // Step 2: Send actual pings
+                // Send pings immediately (backend will perform voice check and return missing users in details)
                 const res = await fetch('/api/remind-teams', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -403,6 +388,23 @@
                     alert(data && data.error ? data.error : 'Failed to send reminders');
                     return;
                 }
+
+                // Collect missing users from all details
+                let allMissing = [];
+                if (Array.isArray(data.details)) {
+                    data.details.forEach(d => {
+                        if (d.missingUsers && Array.isArray(d.missingUsers)) {
+                            allMissing = allMissing.concat(d.missingUsers);
+                        }
+                    });
+                }
+
+                // Show WARNING popup first if there are missing users
+                if (allMissing.length > 0) {
+                    const names = allMissing.map(u => `- ${u.name} (Team ${u.team})`).join('\n');
+                    alert(`⚠️ WARNING: Pings sent, but the following players were not in the correct voice channel:\n\n${names}`);
+                }
+
                 const lines = [];
                 lines.push(`Sent ${data.sent || 0} message(s).`);
                 if (typeof data.attempted === 'number') lines.push(`Matches processed: ${data.attempted}`);
