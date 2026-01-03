@@ -20,5 +20,6 @@ node deploy-commands.js
 # 4. Restart the bot
 echo "Restarting pm2 process..."
 pm2 restart ab-bot
+pm2 restart ab-bot-web
 
 echo "Deployment complete!"

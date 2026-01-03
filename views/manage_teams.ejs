@@ -323,7 +323,8 @@
     </div>
 
     <script>
-        const messageIds = <% - JSON.stringify(messageIds || []) %>;
+
+        const messageIds = JSON.parse(decodeURIComponent('<%= encodeURIComponent(JSON.stringify(messageIds || [])) %>'));
         const messageKey = '<%= messageKey %>';
 
         // Restore expanded slots from sessionStorage
