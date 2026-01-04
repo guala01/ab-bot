@@ -250,10 +250,11 @@ async function sendTeamRemindersToChannels({ messageIds, slotTime, checkOnly = f
                         try {
                             const member = await guild.members.fetch(userId);
                             if (member.voice.channelId !== channelId) {
-                                missingVoiceUsers.push({ userId, name: member.displayName, team: teamName });
+                                const issue = !member.voice.channelId ? 'Missing' : 'Wrong Channel';
+                                missingVoiceUsers.push({ userId, name: member.displayName, team: teamName, issue: issue });
                             }
                         } catch (e) {
-                            missingVoiceUsers.push({ userId, name: 'Unknown User', team: teamName });
+                            missingVoiceUsers.push({ userId, name: 'Unknown User', team: teamName, issue: 'Missing' });
                         }
                     }));
                 };

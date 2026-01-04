@@ -401,8 +401,19 @@
 
                 // Show WARNING popup first if there are missing users
                 if (allMissing.length > 0) {
-                    const names = allMissing.map(u => `- ${u.name} (Team ${u.team})`).join('\n');
-                    alert(`⚠️ WARNING: Pings sent, but the following players were not in the correct voice channel:\n\n${names}`);
+                    const wrongChannel = allMissing.filter(u => u.issue === 'Wrong Channel');
+                    const purelyMissing = allMissing.filter(u => u.issue !== 'Wrong Channel'); // 'Missing' or undefined
+
+                    let warnMsg = '⚠️ WARNING: Pings sent, but some players are not in position:\n';
+
+                    if (wrongChannel.length > 0) {
+                        warnMsg += '\n📢 In WRONG Voice Channel:\n' + wrongChannel.map(u => `- ${u.name} (Team ${u.team})`).join('\n');
+                    }
+                    if (purelyMissing.length > 0) {
+                        warnMsg += '\n\n🚫 Missing from Voice Entirely:\n' + purelyMissing.map(u => `- ${u.name} (Team ${u.team})`).join('\n');
+                    }
+
+                    alert(warnMsg);
                 }
 
                 const lines = [];
