@@ -47,6 +47,32 @@ db.exec(`
     games_played INTEGER DEFAULT 0,
     last_updated TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS nodewar_signups (
+    message_id TEXT,
+    user_id TEXT,
+    user_display_name TEXT,
+    position INTEGER,
+    status TEXT DEFAULT 'signed',
+    signed_at TEXT,
+    PRIMARY KEY (message_id, user_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS nodewar_messages (
+    message_id TEXT PRIMARY KEY,
+    guild_id TEXT,
+    channel_id TEXT,
+    day TEXT,
+    max_cap INTEGER DEFAULT 100,
+    created_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS name_overrides (
+    user_id TEXT,
+    guild_id TEXT,
+    display_name TEXT,
+    PRIMARY KEY (user_id, guild_id)
+  );
 `);
 
 // Add custom_name column if it doesn't exist
@@ -233,5 +259,97 @@ module.exports = {
     if (!Array.isArray(messageIds) || messageIds.length === 0) return;
     const placeholders = messageIds.map(() => '?').join(',');
     return db.prepare(`UPDATE messages SET day = ? WHERE message_id IN (${placeholders})`).run(day, ...messageIds);
+  },
+
+  // ========== Node War Functions ==========
+  saveNodewarMessage: (messageId, guildId, channelId, day, maxCap) => {
+    return db.prepare(`
+      INSERT OR REPLACE INTO nodewar_messages (message_id, guild_id, channel_id, day, max_cap, created_at) 
+      VALUES (?, ?, ?, ?, ?, datetime('now'))
+    `).run(messageId, guildId, channelId, day, maxCap);
+  },
+  getNodewarMessage: (messageId) => {
+    return db.prepare('SELECT * FROM nodewar_messages WHERE message_id = ?').get(messageId);
+  },
+  getAllNodewarMessages: () => {
+    return db.prepare('SELECT * FROM nodewar_messages ORDER BY created_at DESC').all();
+  },
+  addNodewarSignup: (messageId, userId, displayName) => {
+    // Get current max position
+    const maxPos = db.prepare('SELECT MAX(position) as maxPos FROM nodewar_signups WHERE message_id = ?').get(messageId);
+    const position = (maxPos && maxPos.maxPos !== null) ? maxPos.maxPos + 1 : 1;
+    
+    // Get max cap for this message
+    const meta = db.prepare('SELECT max_cap FROM nodewar_messages WHERE message_id = ?').get(messageId);
+    const maxCap = meta ? meta.max_cap : 100;
+    
+    // Count current signed players
+    const signedCount = db.prepare("SELECT COUNT(*) as cnt FROM nodewar_signups WHERE message_id = ? AND status = 'signed'").get(messageId);
+    const currentSigned = signedCount ? signedCount.cnt : 0;
+    
+    // Determine status
+    const status = currentSigned < maxCap ? 'signed' : 'waitlist';
+    
+    return db.prepare(`
+      INSERT OR IGNORE INTO nodewar_signups (message_id, user_id, user_display_name, position, status, signed_at) 
+      VALUES (?, ?, ?, ?, ?, datetime('now'))
+    `).run(messageId, userId, displayName, position, status);
+  },
+  removeNodewarSignup: (messageId, userId) => {
+    // Get the user being removed
+    const removed = db.prepare('SELECT * FROM nodewar_signups WHERE message_id = ? AND user_id = ?').get(messageId, userId);
+    if (!removed) return { changes: 0 };
+    
+    // Delete the user
+    const result = db.prepare('DELETE FROM nodewar_signups WHERE message_id = ? AND user_id = ?').run(messageId, userId);
+    
+    // If they were signed (not waitlist), promote first waitlister
+    if (removed.status === 'signed') {
+      const firstWaitlist = db.prepare(`
+        SELECT * FROM nodewar_signups 
+        WHERE message_id = ? AND status = 'waitlist' 
+        ORDER BY position ASC 
+        LIMIT 1
+      `).get(messageId);
+      
+      if (firstWaitlist) {
+        db.prepare("UPDATE nodewar_signups SET status = 'signed' WHERE message_id = ? AND user_id = ?")
+          .run(messageId, firstWaitlist.user_id);
+      }
+    }
+    
+    return result;
+  },
+  getNodewarSignups: (messageId) => {
+    return db.prepare('SELECT * FROM nodewar_signups WHERE message_id = ? ORDER BY position ASC').all(messageId);
+  },
+  getNodewarSignup: (messageId, userId) => {
+    return db.prepare('SELECT * FROM nodewar_signups WHERE message_id = ? AND user_id = ?').get(messageId, userId);
+  },
+  deleteNodewarMessage: (messageId) => {
+    db.prepare('DELETE FROM nodewar_signups WHERE message_id = ?').run(messageId);
+    db.prepare('DELETE FROM nodewar_messages WHERE message_id = ?').run(messageId);
+  },
+
+  // ========== Name Override Functions ==========
+  setNameOverride: (userId, guildId, displayName) => {
+    return db.prepare(`
+      INSERT OR REPLACE INTO name_overrides (user_id, guild_id, display_name)
+      VALUES (?, ?, ?)
+    `).run(userId, guildId, displayName);
+  },
+  removeNameOverride: (userId, guildId) => {
+    return db.prepare('DELETE FROM name_overrides WHERE user_id = ? AND guild_id = ?').run(userId, guildId);
+  },
+  getNameOverride: (userId, guildId) => {
+    return db.prepare('SELECT display_name FROM name_overrides WHERE user_id = ? AND guild_id = ?').get(userId, guildId);
+  },
+  getAllNameOverrides: (guildId) => {
+    return db.prepare('SELECT * FROM name_overrides WHERE guild_id = ? ORDER BY display_name ASC').all(guildId);
+  },
+  getNameOverridesForUsers: (userIds, guildId) => {
+    if (!Array.isArray(userIds) || userIds.length === 0) return [];
+    const placeholders = userIds.map(() => '?').join(',');
+    return db.prepare(`SELECT * FROM name_overrides WHERE user_id IN (${placeholders}) AND guild_id = ?`).all(...userIds, guildId);
   }
 };

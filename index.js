@@ -121,7 +121,45 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     } else if (interaction.isButton()) {
         try {
-            // Handle signup buttons
+            // Handle Node War signup/leave buttons
+            if (interaction.customId === 'nodewar_signup' || interaction.customId === 'nodewar_leave') {
+                const messageId = interaction.message.id;
+                const userId = interaction.user.id;
+                const displayName = interaction.user.username;
+
+                // Get nodewar message metadata
+                const meta = db.getNodewarMessage(messageId);
+                if (!meta) {
+                    return interaction.reply({ content: 'This signup is no longer valid.', flags: 64 });
+                }
+
+                await interaction.deferUpdate();
+
+                const { buildNodewarEmbed } = require('./commands/nodewar');
+
+                if (interaction.customId === 'nodewar_signup') {
+                    // Check if already signed up
+                    const existing = db.getNodewarSignup(messageId, userId);
+                    if (existing) {
+                        // Already signed up, ignore
+                    } else {
+                        db.addNodewarSignup(messageId, userId, displayName);
+                    }
+                } else if (interaction.customId === 'nodewar_leave') {
+                    db.removeNodewarSignup(messageId, userId);
+                }
+
+                // Refresh the embed with name overrides
+                const signups = db.getNodewarSignups(messageId);
+                const userIds = signups.map(s => s.user_id);
+                const overridesRaw = meta.guild_id ? db.getNameOverridesForUsers(userIds, meta.guild_id) : [];
+                const nameOverrides = new Map(overridesRaw.map(o => [o.user_id, o.display_name]));
+                const newEmbed = buildNodewarEmbed(meta.day, meta.max_cap, signups, nameOverrides);
+                await interaction.editReply({ embeds: [newEmbed] });
+                return;
+            }
+
+            // Handle guild league signup buttons
             if (interaction.customId.startsWith('signup_')) {
                 const parsed = parseSignupCustomId(interaction.customId);
                 if (!parsed) return;
