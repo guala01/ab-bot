@@ -326,6 +326,33 @@ module.exports = {
   getNodewarSignup: (messageId, userId) => {
     return db.prepare('SELECT * FROM nodewar_signups WHERE message_id = ? AND user_id = ?').get(messageId, userId);
   },
+  updateNodewarCap: (messageId, newCap) => {
+    // Update the cap
+    db.prepare('UPDATE nodewar_messages SET max_cap = ? WHERE message_id = ?').run(newCap, messageId);
+
+    // Get all signed players ordered by position
+    const signed = db.prepare("SELECT * FROM nodewar_signups WHERE message_id = ? AND status = 'signed' ORDER BY position ASC").all(messageId);
+    
+    if (signed.length > newCap) {
+      // Demote excess players (last ones by position) to waitlist
+      const toWaitlist = signed.slice(newCap);
+      const demote = db.prepare("UPDATE nodewar_signups SET status = 'waitlist' WHERE message_id = ? AND user_id = ?");
+      for (const s of toWaitlist) {
+        demote.run(messageId, s.user_id);
+      }
+      return { demoted: toWaitlist.length };
+    } else if (signed.length < newCap) {
+      // Promote waitlisters if there's now room
+      const spotsOpen = newCap - signed.length;
+      const waitlisters = db.prepare("SELECT * FROM nodewar_signups WHERE message_id = ? AND status = 'waitlist' ORDER BY position ASC LIMIT ?").all(messageId, spotsOpen);
+      const promote = db.prepare("UPDATE nodewar_signups SET status = 'signed' WHERE message_id = ? AND user_id = ?");
+      for (const s of waitlisters) {
+        promote.run(messageId, s.user_id);
+      }
+      return { promoted: waitlisters.length };
+    }
+    return { demoted: 0, promoted: 0 };
+  },
   deleteNodewarMessage: (messageId) => {
     db.prepare('DELETE FROM nodewar_signups WHERE message_id = ?').run(messageId);
     db.prepare('DELETE FROM nodewar_messages WHERE message_id = ?').run(messageId);
